@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+.electron-cache/
+.persistence-test-userdata/
+.e2e-userdata/
+.design/
+.shot-log.txt
+.builder-log.txt
+*.log
+.vite/

@@ -1,0 +1,458 @@
+/* ============================================================
+   Screen Scout — shared glass surfaces & controls
+   "Frosted Slate": Apple-style vibrancy glass, neutral depth,
+   one system-green accent, soft continuous radii.
+   ============================================================ */
+
+/* The window slab: the desktop blur comes from the in-page .glass-backdrop
+   (the OS acrylic material is NOT used — where it falls back to a flat
+   surface it paints a grey ring around the rounded slab). This tint layers
+   a true-neutral dark vibrancy with a whisper of green ambience and the
+   quiet light catch along the top edge. */
+.glass-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background:
+    radial-gradient(700px 420px at 85% -12%, rgba(48, 209, 88, 0.06), transparent 62%),
+    linear-gradient(168deg, rgba(26, 26, 28, 0.58), rgba(15, 15, 17, 0.7));
+  backdrop-filter: var(--blur-strong);
+  border: 1px solid var(--line);
+  box-shadow: var(--specular), inset 0 0 0 1px rgba(0, 0, 0, 0.2), var(--shadow-2);
+}
+
+/* inset wells — inputs, thumbnails, attachments sit "inside" the glass */
+.glass-inset {
+  background: var(--glass-2);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-sm);
+}
+
+/* Frosted glass: a screenshot of the desktop behind the window (sent by the
+   main process just before show), blurred and dimmed under the tint. The
+   OS acrylic material cannot be relied on (it silently falls back to a flat
+   surface on some machines), so the frost is made in-page and works
+   everywhere. scale() hides the blur's transparent edge bleed. */
+.glass-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1; /* above the parent's gradient (fallback), below all content */
+  background:
+    linear-gradient(168deg, rgba(26, 26, 28, 0.5), rgba(15, 15, 17, 0.66)),
+    var(--backdrop-image) center / cover no-repeat;
+  filter: blur(28px) saturate(1.4) brightness(0.72);
+  transform: scale(1.18);
+  animation: backdrop-in var(--t-med) var(--ease) both;
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------ window header (shared by all windows) */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--divider);
+  flex: none;
+}
+
+.header-drag {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  -webkit-app-region: drag;
+  height: 28px;
+}
+
+/* the brand reads like a macOS toolbar title */
+.header-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* quiet model label — beats the .chip capsule via specificity */
+.chip.header-model {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  font-size: 11px;
+}
+
+.header-dot {
+  flex: none;
+  margin-left: 2px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  -webkit-app-region: no-drag;
+}
+
+.header-confirm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+
+/* ------------------------------------------------------------ buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-xs);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--glass-hover);
+}
+
+.btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+.btn-sm {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* the one filled control on the surface */
+.btn-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 0 14px rgba(48, 209, 88, 0.22);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-bright);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--accent-pressed);
+}
+
+.btn-primary:disabled {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-faint);
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--glass-hover);
+  color: var(--text);
+}
+
+.btn-danger {
+  color: var(--danger);
+  background: var(--danger-dim);
+  border-color: var(--danger-border);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(255, 69, 58, 0.2);
+}
+
+/* ------------------------------------------------------------ icon buttons: circular ghosts */
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--glass-hover);
+  color: var(--text);
+}
+
+.icon-btn.small {
+  width: 24px;
+  height: 24px;
+}
+
+/* destructive icon variant (hide/close affordances) */
+.icon-btn.danger {
+  color: var(--danger);
+}
+
+.icon-btn.danger:hover:not(:disabled) {
+  color: #ff6b61;
+  background: var(--danger-dim);
+}
+
+/* ------------------------------------------------------------ chips: capsules */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.chip.accent {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--line-accent-faint);
+}
+
+.chip.danger {
+  color: var(--danger);
+  background: var(--danger-dim);
+  border-color: var(--danger-border);
+}
+
+/* ------------------------------------------------------------ status dots */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(48, 209, 88, 0.55);
+  flex: none;
+}
+
+.dot.idle {
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: none;
+}
+
+.dot.danger {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.5);
+}
+
+/* ------------------------------------------------------------ toast */
+.toast {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--glass-1-strong);
+  backdrop-filter: var(--blur-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  box-shadow: var(--specular-soft), var(--shadow-2);
+  animation: rise-in var(--t-med) var(--ease) both;
+  white-space: nowrap;
+}
+
+.toast.error {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: rgba(40, 20, 18, 0.85);
+}
+
+/* ------------------------------------------------------------ text inputs */
+.text-input {
+  height: 30px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--glass-input);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  transition: border-color var(--t-fast), background var(--t-fast);
+  user-select: text;
+}
+
+.text-input::placeholder {
+  color: var(--text-faint);
+}
+
+.text-input:hover:not(:focus) {
+  border-color: var(--line-strong);
+}
+
+.text-input:focus {
+  border-color: var(--line-accent);
+}
+
+.text-input:disabled {
+  opacity: 0.5;
+}
+
+select.text-input {
+  appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='rgba(255,255,255,0.5)' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: default;
+}
+
+select.text-input option {
+  background: #1c1c1e;
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------ motion utilities */
+.pulse {
+  animation: pulse-soft 1.6s var(--ease) infinite;
+}
+
+.rise-in {
+  animation: rise-in var(--t-med) var(--ease) both;
+}
+
+/* ------------------------------------------------------------ image drop target */
+.assistant-root.drag-over::after {
+  content: '';
+  position: fixed;
+  inset: 6px;
+  z-index: 60;
+  pointer-events: none;
+  border: 1.5px dashed var(--line-accent);
+  border-radius: var(--radius-lg);
+  background: rgba(48, 209, 88, 0.07);
+}
+
+/* ------------------------------------------------------------ redaction editor */
+.redact-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 8px;
+  background: var(--glass-1-strong);
+  backdrop-filter: var(--blur-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--specular-soft), var(--shadow-2);
+  animation: rise-in var(--t-med) var(--ease) both;
+}
+
+.redact-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.redact-modes {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 2px;
+}
+
+.redact-count {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 2px;
+}
+
+.redact-spacer {
+  flex: 1;
+}
+
+.redact-stage {
+  position: relative;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.redact-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.redact-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.redact-box {
+  position: absolute;
+  background: rgba(48, 209, 88, 0.22);
+  border: 1px solid var(--accent, #30d158);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.redact-box.drafting {
+  background: rgba(48, 209, 88, 0.12);
+  border-style: dashed;
+}
+
+.redact-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+/* Slightly wider capture-shortcut row so the extra button fits. */
+.shortcut-row.capture-row {
+  flex-wrap: wrap;
+}

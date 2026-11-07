@@ -1,0 +1,18 @@
+Screen Scout — License Notice
+=============================
+
+Copyright (c) 2026 Screen Scout. All rights reserved.
+
+Screen Scout is proprietary software. It is licensed, not sold, to you under
+the End User License Agreement in EULA.md. No right is granted to copy,
+modify, distribute, sublicense, or create derivative works of this software
+except as expressly stated in that agreement.
+
+SPDX-License-Identifier: LicenseRef-Proprietary
+npm license identifier: UNLICENSED
+
+Third-party software bundled with or used by Screen Scout is covered by its
+own licenses; see THIRD-PARTY-NOTICES.md for attribution and license texts.
+
+Use of the hosted free tier is additionally governed by the hosted-service
+terms and privacy notice served by the relay (see EULA.md, "Hosted Service").

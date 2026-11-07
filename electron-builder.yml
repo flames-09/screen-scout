@@ -1,0 +1,29 @@
+appId: com.screenscout.app
+productName: Screen Scout
+copyright: Copyright (c) 2026 Screen Scout. All rights reserved.
+
+directories:
+  buildResources: assets
+
+files:
+  # The main process is fully bundled by electron-vite (zod inlined) and the
+  # renderer ships self-hosted fonts — NO node_modules is needed at runtime.
+  - "!node_modules/**"
+  - out/**
+  - assets/**
+  - package.json
+  - "!**/*.map"
+
+win:
+  target:
+    - nsis
+  icon: assets/icon.png
+
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  artifactName: Screen-Scout-${version}-setup.${ext}
+
+electronDownload:
+  cache: .electron-cache

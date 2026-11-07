@@ -1,0 +1,644 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
+import { Eye, EyeOff, KeyRound, Loader2, X, CheckCircle2, AlertTriangle, Keyboard, ShieldCheck, Power, Cloud } from 'lucide-react'
+import type { AccessMode, AppSettings, ConnectionTestResult, HostedQuota, PublicSettings } from '@shared/types'
+import { SUGGESTED_VISION_MODELS } from '@shared/model-config'
+import { acceleratorFromEvent } from './shortcut-recorder'
+
+type KeyState = 'none' | 'secure' | 'session'
+
+/** Settings window: NVIDIA connection, model, shortcut, startup, privacy. */
+export function SettingsApp(): JSX.Element {
+  const [settings, setSettings] = useState<PublicSettings | null>(null)
+  const [keyDraft, setKeyDraft] = useState('')
+  const [keyVisible, setKeyVisible] = useState(false)
+  const [keyState, setKeyState] = useState<KeyState>('none')
+  const [keyMessage, setKeyMessage] = useState<{ text: string; kind: 'ok' | 'warn' } | null>(null)
+  const [modelDraft, setModelDraft] = useState('')
+  const [customModel, setCustomModel] = useState(false)
+  const [baseUrlDraft, setBaseUrlDraft] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
+  const [shortcutDraft, setShortcutDraft] = useState<string | null>(null)
+  const [captureDraft, setCaptureDraft] = useState<string>('')
+  const [peekDraft, setPeekDraft] = useState<string>('')
+  const [recording, setRecording] = useState<null | 'assistant' | 'capture' | 'peek'>(null)
+  const [shortcutMessage, setShortcutMessage] = useState<string | null>(null)
+  const [captureMessage, setCaptureMessage] = useState<string | null>(null)
+  const [peekMessage, setPeekMessage] = useState<string | null>(null)
+  const [quota, setQuota] = useState<HostedQuota | null>(null)
+  const [quotaFailed, setQuotaFailed] = useState(false)
+
+  const loadQuota = useCallback((): void => {
+    void window.scout.settings
+      .getHostedQuota()
+      .then((value) => {
+        setQuota(value)
+        setQuotaFailed(value === null)
+      })
+      .catch(() => {
+        setQuota(null)
+        setQuotaFailed(true)
+      })
+  }, [])
+
+  const load = useCallback((): void => {
+    void window.scout.settings.get().then((s) => {
+      setSettings(s)
+      setKeyState(s.hasApiKey ? (s.keyStorageSecure ? 'secure' : 'session') : 'none')
+      setModelDraft(s.model)
+      setCustomModel(!SUGGESTED_VISION_MODELS.some((m) => m.id === s.model))
+      setBaseUrlDraft(s.baseUrl)
+      setShortcutDraft(s.shortcut)
+      setCaptureDraft(s.captureShortcut)
+      setPeekDraft(s.peekShortcut)
+      if (s.hostedQuota) {
+        setQuota(s.hostedQuota)
+        setQuotaFailed(false)
+      }
+      if (s.accessMode === 'hosted' && s.hostedAvailable) loadQuota()
+    })
+  }, [loadQuota])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [backdrop, setBackdrop] = useState<string | null>(null)
+
+  // Frosted-glass backdrop (desktop behind the window, sent pre-show); the
+  // screenshot is dropped from memory when the window hides. Showing the
+  // window also re-reads settings + quota, since it stays alive between opens.
+  useEffect(() => {
+    return window.scout.window.onVisibility((payload) => {
+      if (payload.visible) load()
+      else setBackdrop(null)
+    })
+  }, [load])
+  useEffect(() => {
+    return window.scout.window.onBackdrop(setBackdrop)
+  }, [])
+
+  const guard = useCallback(async (fn: () => Promise<void>): Promise<void> => {
+    try {
+      setSaveError(null)
+      await fn()
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Something went wrong. Try again.')
+    }
+  }, [])
+
+  const setAccessMode = useCallback(
+    async (mode: AccessMode): Promise<void> => {
+      await guard(async () => {
+        const updated = await window.scout.settings.save({ accessMode: mode })
+        setSettings(updated)
+        setQuota(null)
+        setQuotaFailed(false)
+        if (mode === 'hosted') loadQuota()
+      })
+    },
+    [guard, loadQuota]
+  )
+
+  const saveKey = useCallback(async (): Promise<void> => {
+    if (!keyDraft.trim()) return
+    await guard(async () => {
+      const result = await window.scout.settings.saveApiKey(keyDraft)
+      setKeyDraft('')
+      setKeyVisible(false)
+      if (result.ok && result.secure) {
+        setKeyMessage({
+          text: 'Key saved on this machine — Screen Scout will remember it next time you launch it.',
+          kind: 'ok'
+        })
+      } else if (result.message) {
+        setKeyMessage({ text: result.message, kind: 'warn' })
+      } else {
+        setKeyMessage(null)
+      }
+      load()
+    })
+  }, [guard, keyDraft, load])
+
+  const removeKey = useCallback(async (): Promise<void> => {
+    await guard(async () => {
+      await window.scout.settings.removeApiKey()
+      setKeyMessage(null)
+      load()
+    })
+  }, [guard, load])
+
+  const testConnection = useCallback(async (): Promise<void> => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await window.scout.settings.testConnection({
+        baseUrl: baseUrlDraft.trim(),
+        model: modelDraft.trim()
+      })
+      setTestResult(result)
+    } catch (error) {
+      setTestResult({
+        ok: false,
+        message: 'The test request could not be started.',
+        detail: error instanceof Error ? error.message : undefined
+      })
+    } finally {
+      setTesting(false)
+    }
+  }, [baseUrlDraft, modelDraft])
+
+  const saveConnection = useCallback(async (): Promise<void> => {
+    await guard(async () => {
+      const patch: Partial<AppSettings> = {
+        model: modelDraft.trim(),
+        baseUrl: baseUrlDraft.trim()
+      }
+      const updated = await window.scout.settings.save(patch)
+      setSettings(updated)
+      setShortcutMessage(null)
+    })
+  }, [baseUrlDraft, guard, modelDraft])
+
+  const applyShortcut = useCallback(
+    async (accelerator: string, target: 'assistant' | 'capture' | 'peek'): Promise<void> => {
+      await guard(async () => {
+        const patch =
+          target === 'assistant'
+            ? { shortcut: accelerator }
+            : target === 'capture'
+              ? { captureShortcut: accelerator }
+              : { peekShortcut: accelerator }
+        const updated = await window.scout.settings.save(patch)
+        setSettings(updated)
+        setShortcutDraft(updated.shortcut)
+        setCaptureDraft(updated.captureShortcut)
+        setPeekDraft(updated.peekShortcut)
+        setRecording(null)
+        if (target === 'assistant') {
+          setShortcutMessage(
+            updated.shortcutStatus === 'failed'
+              ? (updated.shortcutError ?? 'The shortcut could not be registered.')
+              : null
+          )
+        } else if (target === 'capture') {
+          setCaptureMessage(
+            updated.captureShortcutStatus === 'failed'
+              ? (updated.captureShortcutError ?? 'The shortcut could not be registered.')
+              : null
+          )
+        } else {
+          setPeekMessage(
+            updated.peekShortcutStatus === 'failed'
+              ? (updated.peekShortcutError ?? 'The shortcut could not be registered.')
+              : null
+          )
+        }
+      })
+    },
+    [guard]
+  )
+
+  const disableCaptureShortcut = useCallback(async (): Promise<void> => {
+    await guard(async () => {
+      const updated = await window.scout.settings.save({ captureShortcut: '' })
+      setSettings(updated)
+      setCaptureDraft('')
+      setRecording(null)
+      setCaptureMessage(null)
+    })
+  }, [guard])
+
+  const disablePeekShortcut = useCallback(async (): Promise<void> => {
+    await guard(async () => {
+      const updated = await window.scout.settings.save({ peekShortcut: '' })
+      setSettings(updated)
+      setPeekDraft('')
+      setRecording(null)
+      setPeekMessage(null)
+    })
+  }, [guard])
+
+  const toggleStartup = useCallback(async (): Promise<void> => {
+    if (!settings) return
+    await guard(async () => {
+      const updated = await window.scout.settings.save({ launchOnStartup: !settings.launchOnStartup })
+      setSettings(updated)
+    })
+  }, [guard, settings])
+
+  // Shortcut recording: capture the next keydown for whichever row is recording.
+  useEffect(() => {
+    if (!recording) return
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      const result = acceleratorFromEvent(e)
+      if (result.ok && result.accelerator) {
+        void applyShortcut(result.accelerator, recording)
+      } else if (result.reason) {
+        if (recording === 'assistant') setShortcutMessage(result.reason)
+        else if (recording === 'capture') setCaptureMessage(result.reason)
+        else setPeekMessage(result.reason)
+        if (result.cancelled) setRecording(null)
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true } as EventListenerOptions)
+  }, [recording, applyShortcut])
+
+  const isSuggested = SUGGESTED_VISION_MODELS.some((m) => m.id === modelDraft)
+
+  const quotaSummary = quota
+    ? `${quota.dayRemaining} of ${quota.dayLimit} questions left today · ${quota.windowRemaining} of ${quota.windowLimit} in this window`
+    : quotaFailed
+      ? 'Free quota is unavailable right now — the relay did not answer.'
+      : 'Checking your free quota…'
+  const quotaReset = quota
+    ? `Today resets at ${new Date(quota.dayResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; this window at ${new Date(quota.windowResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+    : ''
+
+  return (
+    <div className="glass-root settings-root">
+      {backdrop && (
+        <div
+          className="glass-backdrop"
+          style={{ ['--backdrop-image' as string]: `url("${backdrop}")` } as CSSProperties}
+          aria-hidden="true"
+        />
+      )}
+      <header className="app-header">
+        <div className="header-drag settings-title-drag">
+          <span className="header-name">Settings</span>
+          <span className="chip">Screen Scout</span>
+        </div>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="icon-btn danger"
+            onClick={() => void window.scout.window.hide()}
+            aria-label="Close settings"
+            title="Close"
+          >
+            <X size={15} strokeWidth={2.2} />
+          </button>
+        </div>
+      </header>
+
+      <div className="settings-scroll">
+        {saveError && <div className="settings-note warn" role="alert">{saveError}</div>}
+
+        {/* ---------------------------------------------------- Access mode */}
+        {settings && (settings.hostedAvailable || settings.accessMode === 'hosted') && (
+          <section className="settings-section">
+            <h2 className="settings-heading">
+              <Cloud size={13} strokeWidth={2} />
+              Access
+            </h2>
+            {!settings.hostedAvailable && (
+              <div className="settings-note warn">
+                Free hosted mode isn&apos;t available in this build. Choose your own NVIDIA key to keep asking
+                questions.
+              </div>
+            )}
+            <div className="access-options" role="radiogroup" aria-label="Access mode">
+              {settings.hostedAvailable && (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.accessMode === 'hosted'}
+                  className={`access-card ${settings.accessMode === 'hosted' ? 'active' : ''}`}
+                  onClick={() => void setAccessMode('hosted')}
+                >
+                  <span className="access-title">Free hosted mode</span>
+                  <span className="access-desc">
+                    No API key needed. Questions go through Screen Scout&apos;s relay and are answered by a
+                    free-tier vision model. Limited per device.
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={settings.accessMode === 'byok'}
+                className={`access-card ${settings.accessMode === 'byok' ? 'active' : ''}`}
+                onClick={() => void setAccessMode('byok')}
+              >
+                <span className="access-title">My own NVIDIA key</span>
+                <span className="access-desc">
+                  The app talks directly to NVIDIA with the key stored on this machine. The relay is never
+                  contacted.
+                </span>
+              </button>
+            </div>
+            {settings.hostedAvailable && settings.accessMode === 'hosted' && (
+              <div className="quota-meter" role="status" aria-live="polite">
+                <div className="quota-line">{quotaSummary}</div>
+                {quotaReset && <div className="quota-reset">{quotaReset}</div>}
+              </div>
+            )}
+            {settings.accessMode === 'byok' && (
+              <div className="settings-note">Using your own key — the key section below applies to this mode.</div>
+            )}
+          </section>
+        )}
+
+        {/* ---------------------------------------------- NVIDIA connection */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <KeyRound size={13} strokeWidth={2} />
+            NVIDIA API key
+          </h2>
+          <div className="settings-note">
+            The key is stored encrypted on this machine with Windows secure storage (DPAPI) — never in
+            plaintext, never in the chat window, never in logs. Screen Scout remembers it across
+            restarts until you press <strong>Remove key</strong>.
+          </div>
+          <div className="key-row">
+            <input
+              className="text-input"
+              type={keyVisible ? 'text' : 'password'}
+              value={keyDraft}
+              onChange={(e) => setKeyDraft(e.target.value)}
+              placeholder="nvapi-…"
+              aria-label="NVIDIA API key"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setKeyVisible((v) => !v)}
+              aria-label={keyVisible ? 'Hide key' : 'Show key'}
+              title={keyVisible ? 'Hide' : 'Show'}
+              disabled={!keyDraft}
+            >
+              {keyVisible ? <EyeOff size={14} strokeWidth={2} /> : <Eye size={14} strokeWidth={2} />}
+            </button>
+          </div>
+          <div className="settings-row">
+            <button type="button" className="btn btn-primary" onClick={() => void saveKey()} disabled={!keyDraft.trim()}>
+              Save key securely
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => void removeKey()} disabled={keyState === 'none'}>
+              Remove key
+            </button>
+          </div>
+          <div className={`key-status ${keyState}`}>
+            <span className="dot idle" />
+            {keyState === 'secure' &&
+              'Key saved on this machine — protected by OS-backed secure storage and remembered across restarts.'}
+            {keyState === 'session' &&
+              'Key kept in memory for this session only (OS encryption unavailable) — it will be forgotten when Screen Scout quits.'}
+            {keyState === 'none' && 'No key saved yet.'}
+          </div>
+          {keyMessage && (
+            <div className={`settings-note ${keyMessage.kind}`} role="status">
+              {keyMessage.text}
+            </div>
+          )}
+        </section>
+
+        {/* ---------------------------------------------- Model & endpoint */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <CheckCircle2 size={13} strokeWidth={2} />
+            Vision model
+          </h2>
+          <div className="settings-note">
+            Suggested models accept image input on the NVIDIA API Catalog — press <strong>Test connection</strong> to
+            verify against your account.
+          </div>
+          <select
+            className="text-input"
+            value={isSuggested ? modelDraft : '__custom'}
+            onChange={(e) => {
+              if (e.target.value === '__custom') {
+                setCustomModel(true)
+                setModelDraft('')
+              } else {
+                setCustomModel(false)
+                setModelDraft(e.target.value)
+              }
+            }}
+            aria-label="Model"
+          >
+            {SUGGESTED_VISION_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} — {m.id}
+              </option>
+            ))}
+            <option value="__custom">Custom model ID…</option>
+          </select>
+          {customModel && (
+            <input
+              className="text-input"
+              value={modelDraft}
+              onChange={(e) => setModelDraft(e.target.value)}
+              placeholder="org/model-name"
+              aria-label="Custom model id"
+              spellCheck={false}
+            />
+          )}
+          <label className="settings-label" htmlFor="endpoint">
+            Chat-completions endpoint
+          </label>
+          <input
+            id="endpoint"
+            className="text-input"
+            value={baseUrlDraft}
+            onChange={(e) => setBaseUrlDraft(e.target.value)}
+            spellCheck={false}
+            aria-label="Endpoint URL"
+          />
+          <div className="settings-row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void saveConnection()}
+              disabled={!modelDraft.trim() || !baseUrlDraft.trim()}
+            >
+              Save model
+            </button>
+            <button type="button" className="btn" onClick={() => void testConnection()} disabled={testing || !modelDraft.trim()}>
+              {testing ? <Loader2 size={13} className="spin" strokeWidth={2} /> : null}
+              {testing ? 'Testing…' : 'Test connection'}
+            </button>
+          </div>
+          {testResult && (
+            <div className={`test-result ${testResult.ok ? 'ok' : 'fail'}`} role="status">
+              {testResult.ok ? <CheckCircle2 size={14} strokeWidth={2} /> : <AlertTriangle size={14} strokeWidth={2} />}
+              <div>
+                <div>{testResult.message}</div>
+                {testResult.detail && <div className="test-detail">{testResult.detail}</div>}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ---------------------------------------------- Shortcut */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <Keyboard size={13} strokeWidth={2} />
+            Global shortcuts
+          </h2>
+          <div className="settings-note">
+            Work from any application. Default: <strong>Shift+R</strong> opens or hides the assistant,{' '}
+            <strong>Shift+C</strong> jumps straight to a new screen capture.
+          </div>
+          <div className="shortcut-row">
+            <span className="shortcut-display glass-inset">{shortcutDraft ?? '…'}</span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setRecording('assistant')}
+              disabled={recording !== null}
+            >
+              {recording === 'assistant' ? 'Press a key combination…' : 'Change shortcut'}
+            </button>
+            {recording === 'assistant' && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setRecording(null)
+                  setShortcutMessage(null)
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+          {shortcutMessage && <div className="settings-note warn">{shortcutMessage}</div>}
+          {settings && settings.shortcutStatus === 'failed' && !shortcutMessage && (
+            <div className="settings-note warn">{settings.shortcutError}</div>
+          )}
+          <div className="shortcut-row capture-row">
+            <span className="shortcut-display glass-inset">{captureDraft === '' ? 'Off' : captureDraft}</span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setRecording('capture')}
+              disabled={recording !== null}
+              title="Capture a screen region without opening the popup first"
+            >
+              {recording === 'capture' ? 'Press a key combination…' : 'Change capture shortcut'}
+            </button>
+            {recording === 'capture' && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setRecording(null)
+                  setCaptureMessage(null)
+                }}
+              >
+                Cancel
+              </button>
+            )}
+            {captureDraft !== '' && (
+              <button type="button" className="btn btn-ghost" onClick={() => void disableCaptureShortcut()} disabled={recording !== null}>
+                Disable
+              </button>
+            )}
+          </div>
+          {captureMessage && <div className="settings-note warn">{captureMessage}</div>}
+          {settings && settings.captureShortcutStatus === 'failed' && !captureMessage && (
+            <div className="settings-note warn">{settings.captureShortcutError}</div>
+          )}
+          {settings && settings.captureShortcutStatus === 'disabled' && !captureMessage && (
+            <div className="settings-note">The direct-capture shortcut is currently off.</div>
+          )}
+          <div className="shortcut-row capture-row">
+            <span className="shortcut-display glass-inset">{peekDraft === '' ? 'Off' : peekDraft}</span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setRecording('peek')}
+              disabled={recording !== null}
+              title="Hide without clearing — reopen exactly where you left off"
+            >
+              {recording === 'peek' ? 'Press a key combination…' : 'Change peek shortcut'}
+            </button>
+            {recording === 'peek' && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setRecording(null)
+                  setPeekMessage(null)
+                }}
+              >
+                Cancel
+              </button>
+            )}
+            {peekDraft !== '' && (
+              <button type="button" className="btn btn-ghost" onClick={() => void disablePeekShortcut()} disabled={recording !== null}>
+                Disable
+              </button>
+            )}
+          </div>
+          {peekMessage && <div className="settings-note warn">{peekMessage}</div>}
+          {settings && settings.peekShortcutStatus === 'failed' && !peekMessage && (
+            <div className="settings-note warn">{settings.peekShortcutError}</div>
+          )}
+          {settings && settings.peekShortcutStatus === 'disabled' && !peekMessage && (
+            <div className="settings-note">The peek shortcut is currently off.</div>
+          )}
+        </section>
+
+        {/* ---------------------------------------------- Startup */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <Power size={13} strokeWidth={2} />
+            Startup
+          </h2>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={settings?.launchOnStartup ?? false}
+              onChange={() => void toggleStartup()}
+              disabled={!settings}
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+            <span className="toggle-label">
+              Launch Screen Scout when you sign in
+              <span className="toggle-sub">Runs quietly in the tray; no window opens.</span>
+            </span>
+          </label>
+        </section>
+
+        {/* ---------------------------------------------- Privacy */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <ShieldCheck size={13} strokeWidth={2} />
+            Privacy
+          </h2>
+          <div className="settings-note">
+            {settings?.accessMode === 'hosted' ? (
+              <>
+                When you press <strong>Send</strong>, the selected screenshot crop and your question are sent
+                to Screen Scout&apos;s relay and forwarded to a free-tier model provider. Nothing is uploaded
+                before that, no account is created, and the relay stores no screenshots or prompts — only an
+                anonymous device id and usage counters. Prefer direct access? Choose{' '}
+                <strong>My own NVIDIA key</strong> above.
+              </>
+            ) : (
+              <>
+                When you press <strong>Send</strong>, the selected screenshot crop and your question are sent
+                to the configured NVIDIA endpoint. Nothing is uploaded before that. Screen Scout never
+                captures in the background, keeps conversations in memory only, and discards the capture
+                when the popup closes.
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}

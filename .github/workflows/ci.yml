@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  app:
+    name: App — typecheck, unit, E2E, installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: .electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Root vitest suite also covers the relay unit tests (tests/relay-*.test.ts).
+      - name: Unit tests
+        run: npm test
+
+      - name: Build bundles
+        run: npm run build
+
+      # The E2E harness reports results in an "E2E_RESULT {...}" output line and
+      # its exit code is not authoritative — parse the counts, fail on any failure
+      # or on a missing summary (harness crash).
+      - name: E2E user-journey suite
+        shell: pwsh
+        run: |
+          $output = npm run e2e 2>&1
+          $output | Out-File -FilePath e2e-output.txt -Encoding utf8
+          Get-Content e2e-output.txt | Select-String 'E2E_RESULT','E2E FAIL' | ForEach-Object { $_.Line }
+          $match = $output | Select-String -Pattern 'E2E_RESULT\s+(\{.*\})' | Select-Object -First 1
+          if (-not $match) { Write-Host '::error::no E2E_RESULT summary found'; exit 1 }
+          $result = $match.Matches[0].Groups[1].Value | ConvertFrom-Json
+          Write-Host "E2E result: passed=$($result.passed) failed=$($result.failed)"
+          if ([int]$result.failed -gt 0) { exit 1 }
+
+      # Unsigned on purpose for now (see README: Smart App Control note).
+      - name: Package installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Screen-Scout-setup
+          path: dist/Screen-Scout-*-setup.exe
+          if-no-files-found: error
+
+  relay:
+    name: Relay — typecheck + deploy dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Validates wrangler.toml + bundles the worker without touching production.
+      - name: Wrangler deploy dry-run
+        run: npx wrangler deploy --dry-run --outdir .wrangler-dry

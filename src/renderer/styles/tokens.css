@@ -1,0 +1,186 @@
+/* ============================================================
+   Screen Scout — design tokens
+   Art direction: "Frosted Slate" — Apple-inspired glassmorphism.
+   True-neutral vibrancy glass, one system-green accent,
+   iMessage-style bubbles, soft depth, typographic clarity.
+   Fonts: Inter Variable (UI) + Cascadia Code (numerals/code).
+   ============================================================ */
+
+:root {
+  /* ---- Glass depths (over the in-page frosted backdrop) ---- */
+  --bg-base: #0e0e10;
+
+  /* surface-1: floating panels (messages, cards) — white translucency */
+  --glass-1: rgba(255, 255, 255, 0.055);
+  --glass-1-strong: rgba(30, 30, 32, 0.78);
+  /* surface-2: wells + insets */
+  --glass-2: rgba(0, 0, 0, 0.28);
+  --glass-hover: rgba(255, 255, 255, 0.09);
+  --glass-input: rgba(255, 255, 255, 0.06);
+
+  /* ---- Hairlines ---- */
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --divider: rgba(255, 255, 255, 0.08);
+
+  /* ---- Accent — Apple system green (dark mode) ---- */
+  --accent: #30d158;
+  --accent-bright: #45e06a;
+  --accent-pressed: #24a847;
+  --accent-soft: rgba(48, 209, 88, 0.75);
+  --accent-dim: rgba(48, 209, 88, 0.13);
+  --accent-faint: rgba(48, 209, 88, 0.07);
+  --line-accent: rgba(48, 209, 88, 0.45);
+  --line-accent-faint: rgba(48, 209, 88, 0.2);
+
+  /* ---- Text — Apple label tiers ---- */
+  --text: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --text-faint: rgba(255, 255, 255, 0.35);
+
+  /* ---- Status — Apple dark system colors ---- */
+  --danger: #ff453a;
+  --danger-dim: rgba(255, 69, 58, 0.12);
+  --danger-border: rgba(255, 69, 58, 0.3);
+  --warning: #ff9f0a;
+  --warning-dim: rgba(255, 159, 10, 0.13);
+
+  /* ---- Typography ---- */
+  --font-ui: 'Inter Variable', 'SF Pro Text', -apple-system, 'Segoe UI Variable Text',
+    'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code Variable', 'Cascadia Code', 'SF Mono', 'Consolas', ui-monospace, monospace;
+
+  /* ---- Geometry: soft, continuous-feeling radii ---- */
+  --radius-lg: 20px; /* window */
+  --radius-md: 14px; /* cards, panels, bubbles base */
+  --radius-sm: 10px; /* input wells, toolbars */
+  --radius-xs: 8px; /* controls, keycaps */
+  --radius-pill: 999px; /* capsules */
+
+  /* ---- Depth: soft ambient shadows ---- */
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --shadow-glow: 0 0 0 1px rgba(48, 209, 88, 0.12), 0 8px 30px rgba(48, 209, 88, 0.1);
+  /* specular: the quiet light catch along a glass top edge */
+  --specular: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  --specular-soft: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  /* focus: the Apple ring */
+  --shadow-focus: 0 0 0 3.5px rgba(48, 209, 88, 0.3);
+
+  /* ---- Motion: restrained, ease-out ---- */
+  --ease: cubic-bezier(0.32, 0.72, 0.24, 1);
+  --t-fast: 140ms var(--ease);
+  --t-med: 220ms var(--ease);
+
+  /* ---- Blur: the vibrancy recipe ---- */
+  --blur-strong: blur(40px) saturate(1.9);
+  --blur-soft: blur(20px) saturate(1.6);
+}
+
+/* ------------------------------------------------------------ shared keyframes
+   Defined here so every window entry (assistant, settings, overlay) can use
+   them regardless of which stylesheets it imports. */
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------ reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* the React mount point must span the window for the glass slab to fill it */
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  cursor: default;
+}
+
+::selection {
+  background: rgba(48, 209, 88, 0.3);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(48, 209, 88, 0.5);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ------------------------------------------------------------ scrollbars: near-invisible */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+/* ------------------------------------------------------------ reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

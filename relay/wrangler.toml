@@ -1,0 +1,31 @@
+name = "screen-scout-relay"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+workers_dev = true
+
+# Free-tier budgets and limits. Change these and redeploy — the desktop app
+# reads the resulting limits from response headers, so no app release needed.
+[vars]
+PUBLIC_MODEL_ID = "scout-vision-1"
+# Groq serves TEXT-ONLY turns (the account's free tier has no vision model);
+# image questions go straight to the Workers AI multimodal model below.
+GROQ_MODEL = "openai/gpt-oss-120b"
+CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+DEVICE_PER_DAY = "30"
+DEVICE_PER_WINDOW = "10"
+WINDOW_HOURS = "5"
+GLOBAL_GROQ_PER_DAY = "900"
+GLOBAL_CF_PER_DAY = "130"
+MAX_BODY_BYTES = "6291456"
+REGISTRATIONS_PER_IP_PER_DAY = "20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "screen-scout-relay"
+database_id = "d326cdd6-c5d7-40ea-b77e-a876e64d9320"
+
+[ai]
+binding = "AI"
+
+[triggers]
+crons = ["17 3 * * *"]
