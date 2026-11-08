@@ -7,5 +7,6 @@ dist/
 .design/
 .shot-log.txt
 .builder-log.txt
+.playwright-mcp/
 *.log
 .vite/
