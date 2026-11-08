@@ -83,6 +83,14 @@ export function AssistantApp(): JSX.Element {
     return window.scout.settings.onChanged((updated) => setSettings(updated))
   }, [])
 
+  // Glass tint: publish the user's tint strength as a CSS variable so the
+  // .glass-root/.glass-backdrop gradients (app.css) restyle instantly.
+  useEffect(() => {
+    if (typeof settings?.glassTint === 'number') {
+      document.documentElement.style.setProperty('--glass-tint', String(settings.glassTint))
+    }
+  }, [settings?.glassTint])
+
   // ---- Chat events -------------------------------------------------------------
   // Deltas are batched on a ~40ms trailing timer: react-markdown re-parses the
   // whole growing message on every render, so dispatching per-token makes long

@@ -10,6 +10,11 @@
   /* ---- Glass depths (over the in-page frosted backdrop) ---- */
   --bg-base: #0e0e10;
 
+  /* Glass tint strength (0–100). 50 matches the shipped look; the tint
+     gradients in app.css derive their alphas from this number so Settings
+     can slide the glass from clear to near-opaque at runtime. */
+  --glass-tint: 50;
+
   /* surface-1: floating panels (messages, cards) — white translucency */
   --glass-1: rgba(255, 255, 255, 0.055);
   --glass-1-strong: rgba(30, 30, 32, 0.78);

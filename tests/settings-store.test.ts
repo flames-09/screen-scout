@@ -103,6 +103,13 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ requestTimeoutSec: 45 }).requestTimeoutSec).toBe(45)
   })
 
+  it('clamps the glass tint into 0–100 and rounds', () => {
+    expect(sanitizeSettings({ glassTint: 140 }).glassTint).toBe(100)
+    expect(sanitizeSettings({ glassTint: -5 }).glassTint).toBe(0)
+    expect(sanitizeSettings({ glassTint: 51.7 }).glassTint).toBe(52)
+    expect(sanitizeSettings({}).glassTint).toBe(50)
+  })
+
   it('never stores secrets: an apiKey field is ignored entirely', () => {
     const s = sanitizeSettings({ apiKey: 'nvapi-supersecret' } as never)
     expect((s as unknown as Record<string, unknown>).apiKey).toBeUndefined()

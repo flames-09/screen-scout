@@ -727,6 +727,52 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
         )
       )
 
+      // ---- Appearance: glass tint slider (preview → save → restore) ----------
+      const tintVar = async (): Promise<string> =>
+        String(
+          await settings.webContents.executeJavaScript(
+            `document.documentElement.style.getPropertyValue('--glass-tint')`
+          )
+        )
+      await settings.webContents.executeJavaScript(`(() => {
+        const slider = document.querySelector('[data-testid="tint-slider"]')
+        if (!slider) return false
+        slider.value = '80'
+        slider.dispatchEvent(new Event('input', { bubbles: true }))
+        slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+        return true
+      })()`)
+      record(
+        'appearance.tintPreview',
+        await waitUntil('tint preview applied', async () => (await tintVar()) === '80', 3000),
+        await tintVar()
+      )
+      record(
+        'appearance.tintSaved',
+        await waitUntil(
+          'tint persisted',
+          async () => {
+            const pub = (await settings.webContents.executeJavaScript(`window.scout.settings.get()`)) as {
+              glassTint?: number
+            }
+            return pub.glassTint === 80
+          },
+          4000
+        )
+      )
+      await settings.webContents.executeJavaScript(`(() => {
+        const slider = document.querySelector('[data-testid="tint-slider"]')
+        slider.value = '50'
+        slider.dispatchEvent(new Event('input', { bubbles: true }))
+        slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+        return true
+      })()`)
+      record(
+        'appearance.tintRestored',
+        await waitUntil('tint restored to default', async () => (await tintVar()) === '50', 3000),
+        await tintVar()
+      )
+
       // Close settings via the X — the frost must drop from memory.
       record('settings.closeClicked', (await settings.webContents.executeJavaScript(clickJs('[aria-label="Close settings"]'))) === true)
       record(

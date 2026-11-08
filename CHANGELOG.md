@@ -26,6 +26,8 @@ Initial public build.
   OS-backed encryption (Windows DPAPI), never in the renderer or logs.
 - Streaming answers with markdown rendering, retry, cancel, and an accurate
   header chip showing which model actually served each answer.
+- Adjustable **liquid-glass tint**: a slider in Settings → Appearance slides
+  the frosted glass from clear to near-opaque, live in every window.
 - Frosted-glass UI with in-page desktop backdrop blur; fully frameless,
   rounded, resizable popup.
 - Settings: access mode (hosted / own key), model picker with connection test,
@@ -33,8 +35,9 @@ Initial public build.
   privacy notice and terms.
 - Security baseline: contextIsolation, sandboxed renderers, strict CSP,
   navigation/window-open/webview denied, IPC validation in the main process.
-- Tests: 190 unit tests, 114-check E2E user-journey suite (including the full
-  update check → download → verify flow against a mock relay), integration and
+- Tests: 191 unit tests, 117-check E2E user-journey suite (including the full
+  update check → download → verify flow and the glass-tint slider against a
+  mock relay), integration and
   persistence harnesses; CI on GitHub Actions (Windows app build + relay
   dry-run) and a scheduled relay health monitor.
 - Automatic updates: the app polls the relay's update feed, downloads the

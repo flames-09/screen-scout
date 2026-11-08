@@ -72,6 +72,29 @@
   text-decoration: underline;
 }
 
+/* Appearance — glass tint slider */
+.slider-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.tint-slider {
+  flex: 1;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.slider-value {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .settings-note.warn {
   color: var(--warning);
   background: var(--warning-dim);

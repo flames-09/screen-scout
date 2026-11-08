@@ -45,6 +45,8 @@ export const settingsSchema = z.object({
   noticeAcknowledged: z.boolean(),
   /** Periodic + on-demand update checks against the relay's update feed. */
   updatesEnabled: z.boolean().default(true),
+  /** Glass tint strength 0–100 (50 = shipped default look). */
+  glassTint: z.number().int().min(0).max(100).default(50),
   maxImageBytes: z.number().int().min(256 * 1024).max(10 * 1024 * 1024).default(DEFAULT_MAX_IMAGE_BYTES)
 })
 export type SettingsPayload = z.infer<typeof settingsSchema>

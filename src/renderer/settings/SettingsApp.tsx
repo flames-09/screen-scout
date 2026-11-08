@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Eye, EyeOff, KeyRound, Loader2, X, CheckCircle2, AlertTriangle, Keyboard, ShieldCheck, Power, Cloud, RefreshCw, Download } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Loader2, X, CheckCircle2, AlertTriangle, Keyboard, ShieldCheck, Power, Cloud, RefreshCw, Download, Droplet } from 'lucide-react'
 import type {
   AccessMode,
   AppSettings,
@@ -248,6 +248,28 @@ export function SettingsApp(): JSX.Element {
       setPeekMessage(null)
     })
   }, [guard])
+
+  // Glass tint: publish the user's tint strength as a CSS variable so this
+  // window's glass restyles live while the slider moves.
+  useEffect(() => {
+    if (typeof settings?.glassTint === 'number') {
+      document.documentElement.style.setProperty('--glass-tint', String(settings.glassTint))
+    }
+  }, [settings?.glassTint])
+
+  /** Slider position while dragging (null = resting on the saved value). */
+  const [tintDraft, setTintDraft] = useState<number | null>(null)
+
+  const saveTint = useCallback(
+    async (value: number): Promise<void> => {
+      setTintDraft(null)
+      await guard(async () => {
+        const updated = await window.scout.settings.save({ glassTint: value })
+        setSettings(updated)
+      })
+    },
+    [guard]
+  )
 
   const toggleStartup = useCallback(async (): Promise<void> => {
     if (!settings) return
@@ -684,6 +706,42 @@ export function SettingsApp(): JSX.Element {
               <span className="toggle-sub">Runs quietly in the tray; no window opens.</span>
             </span>
           </label>
+        </section>
+
+        {/* ---------------------------------------------- Appearance */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <Droplet size={13} strokeWidth={2} />
+            Appearance
+          </h2>
+          <label className="toggle-label" htmlFor="tint-slider">
+            Liquid glass tint
+            <span className="toggle-sub">How dark the frosted glass sits over your desktop.</span>
+          </label>
+          <div className="slider-line">
+            <input
+              id="tint-slider"
+              type="range"
+              className="tint-slider"
+              data-testid="tint-slider"
+              min={0}
+              max={100}
+              step={1}
+              value={tintDraft ?? (settings?.glassTint ?? 50)}
+              onInput={(e) => {
+                const value = Number((e.target as HTMLInputElement).value)
+                setTintDraft(value)
+                // Live preview without touching settings — commit happens on release.
+                document.documentElement.style.setProperty('--glass-tint', String(value))
+              }}
+              onPointerUp={(e) => void saveTint(Number((e.target as HTMLInputElement).value))}
+              onKeyUp={(e) => void saveTint(Number((e.target as HTMLInputElement).value))}
+              disabled={!settings}
+            />
+            <span className="slider-value" data-testid="tint-value">
+              {tintDraft ?? (settings?.glassTint ?? 50)}
+            </span>
+          </div>
         </section>
 
         {/* ---------------------------------------------- Updates */}

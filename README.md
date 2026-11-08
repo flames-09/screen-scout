@@ -68,7 +68,7 @@ npm run e2e          # full user-journey E2E in an isolated profile: capture flo
                      # chat error/retry, settings flows, hosted mode against a
                      # local mock relay, direct-capture shortcut cold start,
                      # frosted backdrop, layout, console errors
-npm test             # unit tests (190 tests, app + relay)
+npm test             # unit tests (191 tests, app + relay)
 npm run typecheck    # strict TypeScript check, main + renderer
 npm run test:persistence  # proves the API key is remembered across real
                           # app restarts and stored encrypted on disk

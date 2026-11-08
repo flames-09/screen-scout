@@ -80,6 +80,8 @@ export interface AppSettings {
   launchOnStartup: boolean
   /** Whether the user acknowledged the first-upload privacy notice. */
   noticeAcknowledged: boolean
+  /** Glass tint strength 0–100 (50 = shipped default look). */
+  glassTint: number
   /** Check the relay's update feed automatically (periodic + at startup). */
   updatesEnabled: boolean
   /** Configurable cap on encoded image payload size (bytes of the data URL). */
