@@ -17,9 +17,10 @@ license requires the text to accompany distribution.
 | Cascadia Code Variable font | Microsoft Corporation | SIL Open Font License 1.1 |
 
 Build-time tooling (not shipped in the installer): TypeScript, Vite,
-electron-vite, Vitest, @vitejs/plugin-react, electron-builder/NSIS — MIT;
-wrangler, @cloudflare/workers-types — MIT or Apache-2.0 (Apache License 2.0
-full text: <https://www.apache.org/licenses/LICENSE-2.0>).
+electron-vite, Vitest, @vitejs/plugin-react, electron-builder — MIT; NSIS
+(used by electron-builder at build time only) — zlib/libpng license; wrangler,
+@cloudflare/workers-types — MIT or Apache-2.0 (Apache License 2.0 full text:
+<https://www.apache.org/licenses/LICENSE-2.0>).
 
 ## Upstream AI models (accessed via API through the Hosted Service)
 

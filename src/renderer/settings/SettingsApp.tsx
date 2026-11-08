@@ -3,9 +3,29 @@ import type { CSSProperties } from 'react'
 import { Eye, EyeOff, KeyRound, Loader2, X, CheckCircle2, AlertTriangle, Keyboard, ShieldCheck, Power, Cloud } from 'lucide-react'
 import type { AccessMode, AppSettings, ConnectionTestResult, HostedQuota, PublicSettings } from '@shared/types'
 import { SUGGESTED_VISION_MODELS } from '@shared/model-config'
+import { HOSTED_RELAY_URL } from '@shared/hosted'
 import { acceleratorFromEvent } from './shortcut-recorder'
 
 type KeyState = 'none' | 'secure' | 'session'
+
+/**
+ * Link to a page on the hosted relay (privacy notice, terms). Opens in the
+ * user's browser after an explicit confirmation dialog (app:openExternal).
+ */
+function RelayLink({ path, children }: { path: string; children: string }): JSX.Element {
+  const url = `${HOSTED_RELAY_URL}${path}`
+  return (
+    <a
+      href={url}
+      onClick={(e) => {
+        e.preventDefault()
+        void window.scout.app.openExternal(url)
+      }}
+    >
+      {children}
+    </a>
+  )
+}
 
 /** Settings window: NVIDIA connection, model, shortcut, startup, privacy. */
 export function SettingsApp(): JSX.Element {
@@ -627,6 +647,10 @@ export function SettingsApp(): JSX.Element {
                 before that, no account is created, and the relay stores no screenshots or prompts — only an
                 anonymous device id and usage counters. Prefer direct access? Choose{' '}
                 <strong>My own NVIDIA key</strong> above.
+                <br />
+                <RelayLink path="/privacy">Hosted privacy notice</RelayLink>
+                {' · '}
+                <RelayLink path="/terms">hosted terms</RelayLink>
               </>
             ) : (
               <>

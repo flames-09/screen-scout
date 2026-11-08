@@ -29,7 +29,8 @@ Initial public build.
 - Frosted-glass UI with in-page desktop backdrop blur; fully frameless,
   rounded, resizable popup.
 - Settings: access mode (hosted / own key), model picker with connection test,
-  shortcut recorder, quota meter for hosted mode.
+  shortcut recorder, quota meter for hosted mode, and links to the hosted
+  privacy notice and terms.
 - Security baseline: contextIsolation, sandboxed renderers, strict CSP,
   navigation/window-open/webview denied, IPC validation in the main process.
 - Tests: 172 unit tests, 109-check E2E user-journey suite, integration and

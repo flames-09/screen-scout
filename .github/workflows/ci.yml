@@ -6,6 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: no job in this workflow needs a write token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   app:
     name: App — typecheck, unit, E2E, installer
@@ -27,6 +35,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        # electron's postinstall honors ELECTRON_CACHE — point it at the same
+        # directory electron-builder uses, or the ~120 MB Electron zip is
+        # re-downloaded into %LOCALAPPDATA% on every run.
+        env:
+          ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
 
       - name: Typecheck
         run: npm run typecheck
@@ -51,6 +64,11 @@ jobs:
           if (-not $match) { Write-Host '::error::no E2E_RESULT summary found'; exit 1 }
           $result = $match.Matches[0].Groups[1].Value | ConvertFrom-Json
           Write-Host "E2E result: passed=$($result.passed) failed=$($result.failed)"
+          # Airtight parse gate: a truncated/malformed summary must never read
+          # as a pass. The real suite always has 100+ passed checks.
+          if (-not $result.PSObject.Properties['failed'] -or -not $result.PSObject.Properties['passed'] -or [int]$result.passed -le 0) {
+            Write-Host '::error::malformed E2E summary'; exit 1
+          }
           if ([int]$result.failed -gt 0) { exit 1 }
 
       # Unsigned on purpose for now (see README: Smart App Control note).

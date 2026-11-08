@@ -61,6 +61,17 @@
   font-weight: 600;
 }
 
+/* Inline links inside a note (hosted privacy/terms) — open externally with
+   an explicit confirmation dialog, so they must not look like in-app nav. */
+.settings-note a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.settings-note a:hover {
+  text-decoration: underline;
+}
+
 .settings-note.warn {
   color: var(--warning);
   background: var(--warning-dim);
