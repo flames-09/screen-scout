@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { UpdatePhase, UpdateStateSnapshot } from '@shared/types'
 import type {
   AppSettings,
   ChatEvent,
@@ -127,6 +128,34 @@ const scoutApi = {
     },
     openExternal(url: string): Promise<{ ok: boolean; message?: string }> {
       return ipcRenderer.invoke('app:openExternal', url)
+    },
+    openLogs(): Promise<{ ok: boolean; message?: string }> {
+      return ipcRenderer.invoke('app:openLogs')
+    },
+    copyDiagnostics(): Promise<{ ok: boolean; message?: string }> {
+      return ipcRenderer.invoke('app:copyDiagnostics')
+    }
+  },
+  // --- Updates -----------------------------------------------------------------
+  updates: {
+    state(): Promise<UpdateStateSnapshot> {
+      return ipcRenderer.invoke('updates:state')
+    },
+    check(): Promise<UpdatePhase> {
+      return ipcRenderer.invoke('updates:check')
+    },
+    download(): Promise<UpdatePhase> {
+      return ipcRenderer.invoke('updates:download')
+    },
+    install(): Promise<{ ok: boolean; message?: string }> {
+      return ipcRenderer.invoke('updates:install')
+    },
+    onState(handler: (snapshot: UpdateStateSnapshot) => void): () => void {
+      const listener = (_e: Electron.IpcRendererEvent, payload: UpdateStateSnapshot): void => {
+        if (payload && payload.phase && typeof payload.appVersion === 'string') handler(payload)
+      }
+      ipcRenderer.on('updates:state', listener)
+      return () => ipcRenderer.removeListener('updates:state', listener)
     }
   },
   // --- Selection overlay ------------------------------------------------------

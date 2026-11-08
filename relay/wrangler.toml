@@ -18,6 +18,17 @@ GLOBAL_GROQ_PER_DAY = "900"
 GLOBAL_CF_PER_DAY = "130"
 MAX_BODY_BYTES = "6291456"
 REGISTRATIONS_PER_IP_PER_DAY = "20"
+# Kill switch: flip to "false" and redeploy to pause the whole free tier.
+HOSTED_ENABLED = "true"
+# Oldest app version the hosted service accepts; "0.0.0" disables the gate.
+MIN_APP_VERSION = "0.0.0"
+
+# Update-feed bucket — UNCOMMENT once R2 is enabled on the Cloudflare account
+# and the bucket is created (`npx wrangler r2 bucket create screen-scout-updates`).
+# Until then the relay answers /updates/* with 503 updates-unavailable.
+# [[r2_buckets]]
+# binding = "UPDATES"
+# bucket_name = "screen-scout-updates"
 
 [[d1_databases]]
 binding = "DB"
@@ -29,3 +40,29 @@ binding = "AI"
 
 [triggers]
 crons = ["17 3 * * *"]
+
+# Staging: same code, its own D1 and worker name. Deploy with
+#   npx wrangler deploy --env staging
+# It has no Groq secret by default (chat 503s upstream) — it exists to prove
+# the gates, quota paths, and deploys before production.
+[env.staging]
+name = "screen-scout-relay-staging"
+
+[env.staging.vars]
+PUBLIC_MODEL_ID = "scout-vision-1"
+GROQ_MODEL = "openai/gpt-oss-120b"
+CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+DEVICE_PER_DAY = "30"
+DEVICE_PER_WINDOW = "10"
+WINDOW_HOURS = "5"
+GLOBAL_GROQ_PER_DAY = "900"
+GLOBAL_CF_PER_DAY = "130"
+MAX_BODY_BYTES = "6291456"
+REGISTRATIONS_PER_IP_PER_DAY = "20"
+HOSTED_ENABLED = "true"
+MIN_APP_VERSION = "0.0.0"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "screen-scout-relay-staging"
+database_id = "08344e4c-3697-43ff-8a59-84636b1ff593"

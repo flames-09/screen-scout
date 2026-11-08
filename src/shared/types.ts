@@ -80,6 +80,8 @@ export interface AppSettings {
   launchOnStartup: boolean
   /** Whether the user acknowledged the first-upload privacy notice. */
   noticeAcknowledged: boolean
+  /** Check the relay's update feed automatically (periodic + at startup). */
+  updatesEnabled: boolean
   /** Configurable cap on encoded image payload size (bytes of the data URL). */
   maxImageBytes: number
 }
@@ -141,6 +143,25 @@ export interface ChatErrorMessage {
   retryable: boolean
   /** For quota/rate limits: seconds until the user can try again. */
   retryAfterSec?: number
+}
+
+/** Update-feed phases shared by the main-process service, IPC, and Settings UI. */
+export type UpdatePhase =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'current'; version: string }
+  | { kind: 'available'; version: string; notes?: string }
+  | { kind: 'downloading'; version: string; percent: number }
+  | { kind: 'verified'; version: string; filePath: string }
+  | { kind: 'installing'; version: string }
+  | { kind: 'error'; message: string }
+
+/** Payload of the `updates:state` IPC event / handler. */
+export interface UpdateStateSnapshot {
+  phase: UpdatePhase
+  appVersion: string
+  /** False in builds without a relay URL — the update feed lives there too. */
+  updatesAvailable: boolean
 }
 
 export type ChatEvent =

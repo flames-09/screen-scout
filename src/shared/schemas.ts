@@ -43,6 +43,8 @@ export const settingsSchema = z.object({
   requestTimeoutSec: z.number().int().min(10).max(300),
   launchOnStartup: z.boolean(),
   noticeAcknowledged: z.boolean(),
+  /** Periodic + on-demand update checks against the relay's update feed. */
+  updatesEnabled: z.boolean().default(true),
   maxImageBytes: z.number().int().min(256 * 1024).max(10 * 1024 * 1024).default(DEFAULT_MAX_IMAGE_BYTES)
 })
 export type SettingsPayload = z.infer<typeof settingsSchema>
@@ -102,6 +104,21 @@ export const testConnectionSchema = z.object({
  * is untrusted: size is capped before anything is decoded in the main process.
  */
 export const IMPORT_MAX_IMAGE_BYTES = 32 * 1024 * 1024
+
+/**
+ * Update feed manifest served by the relay at /updates/latest.json. The
+ * installer URL may be absolute or relative to the relay root; sha256 is the
+ * lowercase hex digest of the installer file.
+ */
+export const updateManifestSchema = z.object({
+  version: z.string().trim().regex(/^v?\d+\.\d+\.\d+$/),
+  url: z.string().trim().min(1).max(2048),
+  sha256: z.string().trim().regex(/^[a-fA-F0-9]{64}$/),
+  sizeBytes: z.number().int().positive().max(400 * 1024 * 1024).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  pubDate: z.string().trim().max(40).optional()
+})
+export type UpdateManifest = z.infer<typeof updateManifestSchema>
 
 export const imageImportSchema = z
   .instanceof(Uint8Array)

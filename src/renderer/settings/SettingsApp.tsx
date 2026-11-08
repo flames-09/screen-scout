@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Eye, EyeOff, KeyRound, Loader2, X, CheckCircle2, AlertTriangle, Keyboard, ShieldCheck, Power, Cloud } from 'lucide-react'
-import type { AccessMode, AppSettings, ConnectionTestResult, HostedQuota, PublicSettings } from '@shared/types'
+import { Eye, EyeOff, KeyRound, Loader2, X, CheckCircle2, AlertTriangle, Keyboard, ShieldCheck, Power, Cloud, RefreshCw, Download } from 'lucide-react'
+import type {
+  AccessMode,
+  AppSettings,
+  ConnectionTestResult,
+  HostedQuota,
+  PublicSettings,
+  UpdateStateSnapshot
+} from '@shared/types'
 import { SUGGESTED_VISION_MODELS } from '@shared/model-config'
 import { HOSTED_RELAY_URL } from '@shared/hosted'
 import { acceleratorFromEvent } from './shortcut-recorder'
@@ -45,6 +52,7 @@ export function SettingsApp(): JSX.Element {
   const [recording, setRecording] = useState<null | 'assistant' | 'capture' | 'peek'>(null)
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null)
   const [captureMessage, setCaptureMessage] = useState<string | null>(null)
+  const [diagMessage, setDiagMessage] = useState<string | null>(null)
   const [peekMessage, setPeekMessage] = useState<string | null>(null)
   const [quota, setQuota] = useState<HostedQuota | null>(null)
   const [quotaFailed, setQuotaFailed] = useState(false)
@@ -248,6 +256,51 @@ export function SettingsApp(): JSX.Element {
       setSettings(updated)
     })
   }, [guard, settings])
+
+  // --- Updates -----------------------------------------------------------------
+  // State arrives from the main process (initial fetch + push on every change),
+  // so the section always reflects the real service phase, including auto-checks.
+  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateStateSnapshot | null>(null)
+  useEffect(() => {
+    let alive = true
+    void window.scout.updates.state().then((snapshot) => {
+      if (alive) setUpdateSnapshot(snapshot)
+    })
+    const off = window.scout.updates.onState((snapshot) => setUpdateSnapshot(snapshot))
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+
+  const updatePhase = updateSnapshot?.phase.kind ?? 'idle'
+  const updatesBusy = updatePhase === 'checking' || updatePhase === 'downloading'
+
+  const updateStatusText = ((): string => {
+    const phase = updateSnapshot?.phase
+    if (!phase || !updateSnapshot?.updatesAvailable) {
+      return 'Updates are not configured in this build.'
+    }
+    const current = `Version ${updateSnapshot.appVersion}`
+    switch (phase.kind) {
+      case 'checking':
+        return 'Checking for updates…'
+      case 'current':
+        return `You're up to date (version ${phase.version}).`
+      case 'available':
+        return `Update available: version ${phase.version}.`
+      case 'downloading':
+        return `Downloading update… ${phase.percent}%`
+      case 'verified':
+        return `Version ${phase.version} downloaded and verified — ready to install.`
+      case 'installing':
+        return 'Installing… Screen Scout will restart.'
+      case 'error':
+        return phase.message
+      default:
+        return current
+    }
+  })()
 
   // Shortcut recording: capture the next keydown for whichever row is recording.
   useEffect(() => {
@@ -633,6 +686,72 @@ export function SettingsApp(): JSX.Element {
           </label>
         </section>
 
+        {/* ---------------------------------------------- Updates */}
+        <section className="settings-section">
+          <h2 className="settings-heading">
+            <RefreshCw size={13} strokeWidth={2} />
+            Updates
+          </h2>
+          <div className="settings-note" data-testid="updates-status">
+            {updateStatusText}
+          </div>
+          <div className="settings-row">
+            <button
+              type="button"
+              className="btn"
+              data-testid="updates-check"
+              onClick={() => void window.scout.updates.check()}
+              disabled={updatesBusy || !updateSnapshot?.updatesAvailable}
+            >
+              Check for updates
+            </button>
+            {updatePhase === 'available' && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="updates-download"
+                onClick={() => void window.scout.updates.download()}
+                disabled={updatesBusy}
+              >
+                <Download size={13} strokeWidth={2} />
+                Download update
+              </button>
+            )}
+            {updatePhase === 'verified' && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="updates-install"
+                onClick={() => void window.scout.updates.install()}
+              >
+                Install update
+              </button>
+            )}
+          </div>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={settings?.updatesEnabled ?? true}
+              onChange={async () => {
+                if (!settings) return
+                await guard(async () => {
+                  const updated = await window.scout.settings.save({ updatesEnabled: !settings.updatesEnabled })
+                  setSettings(updated)
+                })
+              }}
+              disabled={!settings}
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+            <span className="toggle-label">
+              Check for updates automatically
+              <span className="toggle-sub">Contacts Screen Scout's update feed at launch and every 6 hours.</span>
+            </span>
+          </label>
+        </section>
+
         {/* ---------------------------------------------- Privacy */}
         <section className="settings-section">
           <h2 className="settings-heading">
@@ -661,6 +780,28 @@ export function SettingsApp(): JSX.Element {
               </>
             )}
           </div>
+          <div className="settings-row">
+            <button
+              type="button"
+              className="btn"
+              data-testid="logs-open"
+              onClick={() => void window.scout.app.openLogs()}
+            >
+              Open log folder
+            </button>
+            <button
+              type="button"
+              className="btn"
+              data-testid="diagnostics-copy"
+              onClick={async () => {
+                const result = await window.scout.app.copyDiagnostics()
+                setDiagMessage(result.ok ? 'Diagnostics copied to the clipboard.' : (result.message ?? 'Could not copy diagnostics.'))
+              }}
+            >
+              Copy diagnostics
+            </button>
+          </div>
+          {diagMessage && <div className="settings-note ok">{diagMessage}</div>}
         </section>
       </div>
     </div>

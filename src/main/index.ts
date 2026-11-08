@@ -1,6 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, safeStorage, shell } from 'electron'
 import * as path from 'node:path'
+import * as os from 'node:os'
 import * as fs from 'node:fs'
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { HostedQuota, ImageImportResult, PublicSettings, SendMessageResult } from '@shared/types'
 import { HOSTED_RELAY_URL } from '@shared/hosted'
@@ -17,6 +19,8 @@ import { SettingsStore, assertSettingsPatch } from './settings/settings-store'
 import { SecretStore } from './security/secrets'
 import { ChatService } from './ai/chat-service'
 import { HostedClient } from './ai/hosted-client'
+import { UpdateService, type UpdatePhase } from './updates/update-service'
+import { Logger } from './logging/logger'
 import { startE2eRelay, type E2eRelayHandle } from './e2e-relay'
 import { CaptureService } from './capture/capture-service'
 import { captureBackdrop } from './backdrop'
@@ -108,6 +112,49 @@ function bootstrap(): void {
   )
   const secrets = new SecretStore()
 
+  // --- Logging & crash reporting (local files only, opt-in telemetry later) ---
+  // Only developer-defined event strings and error messages are logged here —
+  // never prompts, screenshots, keys, or device ids (see logging/logger.ts).
+  const logger = new Logger({ logDir: path.join(app.getPath('userData'), 'logs') })
+  logger.info(`screen scout ${app.getVersion()} starting (electron ${process.versions.electron})`)
+
+  let crashDialogShown = false
+  process.on('uncaughtException', (error) => {
+    logger.error(`uncaughtException: ${error.stack ?? error.message}`)
+    if (crashDialogShown) return
+    crashDialogShown = true
+    void dialog
+      .showMessageBox({
+        type: 'error',
+        title: 'Screen Scout',
+        message: 'Something went wrong',
+        detail: 'An internal error occurred, but Screen Scout keeps running in the tray. Details were written to the log folder (Settings → Privacy → Open log folder).',
+        buttons: ['OK']
+      })
+      .catch(() => undefined)
+  })
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`unhandledRejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`)
+  })
+  app.on('render-process-gone', (_event, webContents, details) => {
+    if (details.reason === 'clean-exit') return
+    logger.error(`render-process-gone (${details.reason}): ${webContents.getURL() || 'about:blank'}`)
+    // A crashed popup/settings window is recreated on next show; drop the
+    // stale reference so ensureAssistant()/openSettings() build fresh ones.
+    if (assistantWindow && webContents === assistantWindow.webContents) {
+      assistantWindow.destroy()
+      assistantWindow = null
+    } else if (settingsWindow && webContents === settingsWindow.webContents) {
+      settingsWindow.destroy()
+      settingsWindow = null
+    }
+  })
+  app.on('child-process-gone', (_event, details) => {
+    // Renderers surface through 'render-process-gone' above; this catches the
+    // auxiliary processes (GPU, utility, zygote) dying unexpectedly.
+    logger.warn(`child-process-gone (${details.type}, ${details.reason})`)
+  })
+
   // --- Hosted free tier ------------------------------------------------------
   // The relay URL is baked in at release time; the env override exists for the
   // E2E suite and local relay development. An empty URL hides hosted mode.
@@ -169,6 +216,39 @@ function bootstrap(): void {
     },
     clearToken: () => secrets.removeDeviceToken(),
     appVersion: () => app.getVersion()
+  })
+
+  // --- Update feed ------------------------------------------------------------
+  // Served by the relay from R2 under /updates (same host as hosted mode, same
+  // runtime override for the E2E mock). An empty relay URL disables updates.
+  const updateStateSnapshot = (): { phase: UpdatePhase; appVersion: string; updatesAvailable: boolean } => ({
+    phase: updateService.currentPhase(),
+    appVersion: app.getVersion(),
+    updatesAvailable: relayUrl() !== ''
+  })
+  const broadcastUpdateState = (): void => {
+    const snapshot = updateStateSnapshot()
+    for (const win of [assistantWindow, settingsWindow]) {
+      if (win && !win.isDestroyed()) win.webContents.send('updates:state', snapshot)
+    }
+  }
+  const updateService = new UpdateService({
+    fetch: (input, init) => net.fetch(input, init) as unknown as Promise<{ ok: boolean; status: number }>,
+    baseUrl: relayUrl,
+    currentVersion: () => app.getVersion(),
+    tempDir: () => app.getPath('temp'),
+    joinPath: (...parts) => path.join(...parts),
+    fs: {
+      createWriteStream: (p) => fs.createWriteStream(p),
+      unlink: (p) => fs.unlinkSync(p)
+    },
+    spawn: (file, args) => spawn(file, args, { detached: true, stdio: 'ignore' }),
+    onState: (phase) => {
+      if (phase.kind === 'available') logger.info(`update available: ${phase.version}`)
+      else if (phase.kind === 'verified') logger.info(`update verified: ${phase.version}`)
+      else if (phase.kind === 'error') logger.warn(`update: ${phase.message}`)
+      broadcastUpdateState()
+    }
   })
 
   const shortcuts = new ShortcutManager()
@@ -662,6 +742,70 @@ function bootstrap(): void {
     return { ok: true }
   })
 
+  // --- Support (logs & diagnostics) ---------------------------------------------
+  // Diagnostics are deliberately minimal and key-free: version, platform, mode,
+  // uptime. Nothing that identifies the user or their content.
+
+  ipcMain.handle('app:openLogs', () => {
+    try {
+      logger.ensureDir()
+      void shell.openPath(logger.dir())
+      return { ok: true }
+    } catch {
+      return { ok: false, message: 'Could not open the log folder.' }
+    }
+  })
+
+  ipcMain.handle('app:copyDiagnostics', async () => {
+    try {
+      const s = settingsStore.load()
+      const diagnostics = {
+        appVersion: app.getVersion(),
+        electron: process.versions.electron,
+        platform: `${process.platform} ${process.arch} ${os.release()}`,
+        locale: app.getLocale(),
+        accessMode: s.accessMode,
+        hostedAvailable: hostedClient.isAvailable(),
+        updatesEnabled: s.updatesEnabled,
+        updatePhase: updateService.currentPhase().kind,
+        uptimeSec: Math.round(process.uptime()),
+        rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        generatedAt: new Date().toISOString()
+      }
+      clipboard.writeText(JSON.stringify(diagnostics, null, 2))
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Could not build diagnostics.' }
+    }
+  })
+
+  // --- Updates -----------------------------------------------------------------
+
+  ipcMain.handle('updates:state', () => updateStateSnapshot())
+  ipcMain.handle('updates:check', () => updateService.check())
+  ipcMain.handle('updates:download', () => updateService.download())
+  ipcMain.handle('updates:install', async () => {
+    if (updateService.currentPhase().kind !== 'verified') {
+      return { ok: false, message: 'No verified update is ready to install.' }
+    }
+    const options = {
+      type: 'question' as const,
+      title: 'Install update',
+      message: 'Install the update and restart Screen Scout?',
+      buttons: ['Install and restart', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    }
+    const parent = assistantWindow ?? settingsWindow ?? null
+    const choice = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+    if (choice.response !== 0) return { ok: false }
+    updateService.install()
+    // The NSIS installer replaces the running exe; give it a beat to take over.
+    setTimeout(() => app.quit(), 500)
+    return { ok: true }
+  })
+
   // --- App lifecycle ----------------------------------------------------------
 
   app.on('second-instance', () => {
@@ -703,6 +847,17 @@ function bootstrap(): void {
       openSettings: () => openSettings(),
       shortcutLabel: () => settingsStore.load().shortcut
     })
+
+    // Auto-check for updates: once shortly after launch, then every 6 hours.
+    // Skipped in every test harness so runs are deterministic and never touch
+    // the production feed; the E2E drives the check explicitly via the UI.
+    if (!E2E_TEST && !SMOKE_TEST && !INTEGRATION_TEST && !PERSISTENCE_PHASE && settingsStore.load().updatesEnabled) {
+      const autoCheck = (): void => {
+        if (settingsStore.load().updatesEnabled) void updateService.check()
+      }
+      setTimeout(autoCheck, 45_000)
+      setInterval(autoCheck, 6 * 60 * 60 * 1000)
+    }
 
     if (SMOKE_TEST) {
       void runSmokeTest()

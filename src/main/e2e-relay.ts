@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createHash } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 
 /**
@@ -39,6 +40,10 @@ function quotaBody(state: E2eRelayState): Record<string, number> {
     windowResetAt: Date.now() + 1_800_000
   }
 }
+
+/** Fake installer served by the mock update feed (deterministic bytes). */
+const E2E_INSTALLER = Buffer.alloc(64 * 1024, 7)
+const E2E_INSTALLER_SHA = createHash('sha256').update(E2E_INSTALLER).digest('hex')
 
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -144,6 +149,29 @@ export async function startE2eRelay(): Promise<E2eRelayHandle> {
         response.write('data: [DONE]\n\n')
         response.end()
       }, 40)
+      return
+    }
+
+    // Update feed: the mock advertises a newer version and serves a tiny fake
+    // installer, so the E2E can exercise check → download → verified without
+    // touching the network or running a real installer.
+    if (url.pathname === '/updates/latest.json' && request.method === 'GET') {
+      json(response, 200, {
+        version: '9.9.9',
+        url: '/updates/Screen-Scout-9.9.9-setup.exe',
+        sha256: E2E_INSTALLER_SHA,
+        sizeBytes: E2E_INSTALLER.length,
+        notes: 'e2e update'
+      })
+      return
+    }
+
+    if (url.pathname === '/updates/Screen-Scout-9.9.9-setup.exe' && request.method === 'GET') {
+      response.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(E2E_INSTALLER.length)
+      })
+      response.end(E2E_INSTALLER)
       return
     }
 

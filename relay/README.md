@@ -113,3 +113,55 @@ used by the E2E tests) or `node scripts/set-relay-url.mjs`.
   inference data by default.
 - A `build.nvidia.com` trial key is **not** suitable for this: NVIDIA's API Trial Terms
   restrict it to evaluation, not production serving.
+
+## Operations runbook
+
+### Kill switch (pause the whole free tier)
+
+Set `HOSTED_ENABLED = "false"` in `wrangler.toml`, then `npx wrangler deploy`.
+Register, quota, and chat all answer `503 hosted-disabled`; the app shows a
+maintenance message and points users at BYOK. Flip back to `"true"` and redeploy
+to resume. (Verified live on staging.)
+
+### Minimum app version
+
+Set `MIN_APP_VERSION = "0.1.0"` (for example) and redeploy: older clients get
+`426 update-required` on register/quota/chat — the app's version rides inside
+its signed token, so the gate cannot be spoofed without a valid new token. Use
+this when a relay change breaks an old app release. `"0.0.0"` disables the gate.
+
+### Staging
+
+```powershell
+npx wrangler deploy --env staging     # worker screen-scout-relay-staging
+```
+
+Staging has its own D1 (same schema) and its own `TOKEN_SIGNING_SECRET`; it has
+no Groq secret, so chat fails upstream — it exists to prove deploys, gates, and
+quota paths before production. Probe it:
+
+```powershell
+curl -X POST https://screen-scout-relay-staging.<subdomain>.workers.dev/v1/register `
+  -H "Content-Type: application/json" -d '{"deviceId":"probe-device-000000001","appVersion":"0.1.0","os":"probe"}'
+```
+
+### Monitoring & alerts
+
+- `node scripts/check-relay.mjs` probes `/health` + the update feed; GitHub
+  Actions runs it every 30 minutes (`.github/workflows/relay-monitor.yml`) and
+  a failed run notifies the repo owner.
+- Cloudflare dashboard: set a **budget/alert notification** on the account and
+  watch Workers → Metrics (error rate) and D1 → Metrics (storage). `npx wrangler tail`
+  streams live request logs when investigating.
+
+### Secret rotation
+
+```powershell
+# Groq key (regenerate on groq.com first)
+npx wrangler secret put GROQ_API_KEY
+# Token signing secret — INVALIDATES all device tokens (clients re-register automatically)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" | npx wrangler secret put TOKEN_SIGNING_SECRET
+```
+
+Rotate either secret without touching code or downtime (tokens refresh on the
+next 401; the app re-registers and continues).

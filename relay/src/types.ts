@@ -30,9 +30,21 @@ export interface Ai {
   run(model: string, inputs: Record<string, unknown>): Promise<unknown>
 }
 
+/** Minimal R2 surface: the relay only reads update assets. */
+export interface R2ObjectBody {
+  body: ReadableStream
+  size: number
+}
+
+export interface R2Bucket {
+  get(key: string): Promise<R2ObjectBody | null>
+}
+
 export interface Env {
   DB: D1Database
   AI: Ai
+  /** Update-feed bucket; optional so a deploy without it still serves chat. */
+  UPDATES?: R2Bucket
   /** Secret — Groq API key (free tier). */
   GROQ_API_KEY?: string
   /** Secret — HMAC key for device tokens. */
@@ -47,6 +59,10 @@ export interface Env {
   GLOBAL_CF_PER_DAY: string
   MAX_BODY_BYTES: string
   REGISTRATIONS_PER_IP_PER_DAY: string
+  /** Kill switch: set to "false" to pause the hosted service (maintenance). */
+  HOSTED_ENABLED?: string
+  /** Oldest app version the hosted service still accepts ("0.0.0" = no gate). */
+  MIN_APP_VERSION?: string
 }
 
 export interface ExecutionContextLike {

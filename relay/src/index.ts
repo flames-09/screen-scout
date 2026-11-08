@@ -16,6 +16,7 @@
  */
 
 import { issueToken, isValidDeviceId, verifyToken, TOKEN_TTL_SECONDS } from './auth'
+import { isOlderThan } from './version'
 import {
   D1QuotaStore,
   limitsFromEnv,
@@ -143,6 +144,9 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   if (!env.TOKEN_SIGNING_SECRET) {
     return apiError(500, 'misconfigured', 'The relay is missing its signing secret.')
   }
+  if (env.HOSTED_ENABLED === 'false') {
+    return apiError(503, 'hosted-disabled', 'The free hosted service is paused for maintenance.')
+  }
   const body = await readJson(request)
   const deviceId = body?.deviceId
   const appVersion = typeof body?.appVersion === 'string' ? body.appVersion : 'unknown'
@@ -150,6 +154,13 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
 
   if (!isValidDeviceId(deviceId)) {
     return apiError(400, 'bad-request', 'deviceId must be a 16–64 character random identifier.')
+  }
+
+  // Version gate: clients older than MIN_APP_VERSION must update before the
+  // hosted service will serve them (protects new relay contracts/limits).
+  const minimum = (env.MIN_APP_VERSION ?? '').trim()
+  if (minimum && minimum !== '0.0.0' && isOlderThan(appVersion, minimum)) {
+    return apiError(426, 'update-required', 'This app version is too old for the free hosted service. Update Screen Scout.')
   }
 
   const store = new D1QuotaStore(env.DB)
@@ -180,7 +191,7 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   )
 }
 
-async function authenticate(request: Request, env: Env): Promise<{ deviceId: string } | Response> {
+async function authenticate(request: Request, env: Env): Promise<{ deviceId: string; version: string } | Response> {
   if (!env.TOKEN_SIGNING_SECRET) {
     return apiError(500, 'misconfigured', 'The relay is missing its signing secret.')
   }
@@ -189,12 +200,30 @@ async function authenticate(request: Request, env: Env): Promise<{ deviceId: str
   if (!payload) {
     return apiError(401, 'unauthorized', 'Device token is missing, invalid, or expired. Register again.')
   }
-  return { deviceId: payload.d }
+  return { deviceId: payload.d, version: typeof payload.v === 'string' ? payload.v : 'unknown' }
+}
+
+/**
+ * Gates shared by every hosted surface: the kill switch pauses the whole free
+ * tier, and the version gate protects the wire contract from very old apps
+ * (a client's version rides in its signed token's `v` claim).
+ */
+function hostedServiceGates(env: Env, appVersion: string): Response | null {
+  if (env.HOSTED_ENABLED === 'false') {
+    return apiError(503, 'hosted-disabled', 'The free hosted service is paused for maintenance.')
+  }
+  const minimum = (env.MIN_APP_VERSION ?? '').trim()
+  if (minimum && minimum !== '0.0.0' && isOlderThan(appVersion, minimum)) {
+    return apiError(426, 'update-required', 'This app version is too old for the free hosted service. Update Screen Scout.')
+  }
+  return null
 }
 
 async function handleQuota(request: Request, env: Env): Promise<Response> {
   const auth = await authenticate(request, env)
   if (auth instanceof Response) return auth
+  const gated = hostedServiceGates(env, auth.version)
+  if (gated) return gated
   const snapshot = await quotaSnapshot(new D1QuotaStore(env.DB), auth.deviceId, limitsFromEnv(env))
   return json(200, { quota: snapshot }, quotaHeaders(snapshot))
 }
@@ -202,6 +231,8 @@ async function handleQuota(request: Request, env: Env): Promise<Response> {
 async function handleChat(request: Request, env: Env): Promise<Response> {
   const auth = await authenticate(request, env)
   if (auth instanceof Response) return auth
+  const gated = hostedServiceGates(env, auth.version)
+  if (gated) return gated
 
   const maxBody = Math.max(256 * 1024, Number(env.MAX_BODY_BYTES) || 6 * 1024 * 1024)
   const declared = Number(request.headers.get('content-length') ?? '0')
@@ -317,6 +348,29 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   })
 }
 
+/**
+ * Serves an update-feed asset from the R2 bucket. latest.json must never be
+ * cached (it is the version pointer); installers may cache for an hour.
+ */
+async function serveUpdateFile(env: Env, key: string, contentType: string): Promise<Response> {
+  if (!env.UPDATES) return apiError(503, 'updates-unavailable', 'The update feed is not configured on this relay.')
+  let object: Awaited<ReturnType<NonNullable<Env['UPDATES']>['get']>>
+  try {
+    // The binding can exist while the bucket is disabled/not yet created.
+    object = await env.UPDATES.get(key)
+  } catch {
+    return apiError(503, 'updates-unavailable', 'The update feed is temporarily unavailable.')
+  }
+  if (!object) return apiError(404, 'not-found', 'Unknown update asset.')
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(object.size),
+      'Cache-Control': key.endsWith('latest.json') ? 'no-store' : 'public, max-age=3600'
+    }
+  })
+}
+
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContextLike): Promise<Response> {
     const url = new URL(request.url)
@@ -334,6 +388,14 @@ export default {
         limits: limitsFromEnv(env),
         providers: ['groq', 'cloudflare-workers-ai']
       })
+    }
+
+    // Update feed: static assets (latest.json + installers) streamed from R2.
+    if (request.method === 'GET' && path === '/updates/latest.json') {
+      return serveUpdateFile(env, 'updates/latest.json', 'application/json')
+    }
+    if (request.method === 'GET' && path.startsWith('/updates/')) {
+      return serveUpdateFile(env, path.slice(1), 'application/octet-stream')
     }
 
     if (path === '/v1/register' && request.method === 'POST') return handleRegister(request, env)

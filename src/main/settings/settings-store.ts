@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   requestTimeoutSec: 60,
   launchOnStartup: false,
   noticeAcknowledged: false,
+  updatesEnabled: true,
   maxImageBytes: DEFAULT_MAX_IMAGE_BYTES
 }
 
@@ -108,6 +109,7 @@ export function sanitizeSettings(input: Record<string, unknown>): AppSettings {
   }
   if (typeof input.launchOnStartup === 'boolean') out.launchOnStartup = input.launchOnStartup
   if (typeof input.noticeAcknowledged === 'boolean') out.noticeAcknowledged = input.noticeAcknowledged
+  if (typeof input.updatesEnabled === 'boolean') out.updatesEnabled = input.updatesEnabled
   if (
     typeof input.maxImageBytes === 'number' &&
     Number.isFinite(input.maxImageBytes) &&

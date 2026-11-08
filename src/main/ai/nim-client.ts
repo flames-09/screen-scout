@@ -217,11 +217,25 @@ export function mapHttpStatus(
         : nimError('rate-limit', { detail: `HTTP 429${detail ? ` — ${detail}` : ''}` })
     case 503:
       return hosted
-        ? nimError('hosted-unavailable', {
-            detail: `HTTP 503${detail ? ` — ${detail}` : ''}`,
-            retryAfterSec
-          })
+        ? /hosted-disabled/.test(bodyText)
+          ? nimError('hosted-unavailable', {
+              detail: `HTTP 503${detail ? ` — ${detail}` : ''}`,
+              message: 'The free hosted service is paused for maintenance. Switch to your own NVIDIA key in Settings.',
+              retryAfterSec
+            })
+          : nimError('hosted-unavailable', {
+              detail: `HTTP 503${detail ? ` — ${detail}` : ''}`,
+              retryAfterSec
+            })
         : nimError('server', { detail: `HTTP 503${detail ? ` — ${detail}` : ''}`, retryable: true })
+    case 426:
+      // Relay version gate: this build is too old for the hosted contract.
+      return hosted
+        ? nimError('hosted-unavailable', {
+            detail: `HTTP 426${detail ? ` — ${detail}` : ''}`,
+            message: 'This version of Screen Scout is too old for the free hosted service. Update the app and try again.'
+          })
+        : nimError('server', { detail: `HTTP 426${detail ? ` — ${detail}` : ''}` })
     case 400:
     case 422: {
       const looksImageRelated = /image|vision|multi.?modal|unsupported media|content part/i.test(detail)

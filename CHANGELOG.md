@@ -33,8 +33,17 @@ Initial public build.
   privacy notice and terms.
 - Security baseline: contextIsolation, sandboxed renderers, strict CSP,
   navigation/window-open/webview denied, IPC validation in the main process.
-- Tests: 172 unit tests, 109-check E2E user-journey suite, integration and
+- Tests: 190 unit tests, 114-check E2E user-journey suite (including the full
+  update check → download → verify flow against a mock relay), integration and
   persistence harnesses; CI on GitHub Actions (Windows app build + relay
-  dry-run).
+  dry-run) and a scheduled relay health monitor.
+- Automatic updates: the app polls the relay's update feed, downloads the
+  installer, verifies its SHA-256, and offers a confirmed install-and-restart.
+  Operators publish releases with `node scripts/upload-update.mjs` (R2-backed).
+- Crash handling and rotating local logs (no content, no keys, no ids), plus
+  "Open log folder" and "Copy diagnostics" in Settings → Privacy.
+- Relay operations: staging environment, kill switch (`HOSTED_ENABLED`),
+  minimum-app-version gate (`MIN_APP_VERSION`), and a runbook in
+  `relay/README.md`.
 
 [0.1.0]: https://github.com/OWNER/REPO/releases/tag/v0.1.0

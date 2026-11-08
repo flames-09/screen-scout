@@ -770,6 +770,47 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
             5000
           )
           record('hosted.quotaNumbers', quotaNumbers, quotaText)
+
+          // ---- Updates: the mock relay advertises 9.9.9; check → download → verified.
+          const updatesStatus = async (): Promise<string> =>
+            String(
+              await hostedSettings.webContents.executeJavaScript(
+                `document.querySelector('[data-testid="updates-status"]')?.textContent ?? ''`
+              )
+            )
+          record(
+            'updates.checkClicked',
+            (await hostedSettings.webContents.executeJavaScript(clickJs('[data-testid="updates-check"]'))) === true
+          )
+          record(
+            'updates.available',
+            await waitUntil('update available', async () => (await updatesStatus()).includes('9.9.9'), 6000),
+            await updatesStatus()
+          )
+          record(
+            'updates.downloadClicked',
+            (await hostedSettings.webContents.executeJavaScript(clickJs('[data-testid="updates-download"]'))) === true
+          )
+          record(
+            'updates.verified',
+            await waitUntil('update verified', async () => (await updatesStatus()).includes('ready to install'), 8000),
+            await updatesStatus()
+          )
+
+          // ---- Support: diagnostics copy reports success in the Settings UI.
+          await hostedSettings.webContents.executeJavaScript(clickJs('[data-testid="diagnostics-copy"]'))
+          record(
+            'support.diagnosticsCopied',
+            await waitUntil(
+              'diagnostics copied note',
+              async () =>
+                (await hostedSettings.webContents.executeJavaScript(`document.body.innerText`)).includes(
+                  'Diagnostics copied'
+                ),
+              5000
+            )
+          )
+
           record(
             'hosted.closeSettings',
             (await hostedSettings.webContents.executeJavaScript(clickJs('[aria-label="Close settings"]'))) === true

@@ -1,0 +1,29 @@
+name: Relay monitor
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-monitor
+  cancel-in-progress: true
+
+jobs:
+  health:
+    name: Production relay health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Probe relay
+        run: node scripts/check-relay.mjs
+      # Optional: add an alerting step here (email/webhook/Slack) once a
+      # notification channel exists. A failed cron run also shows in the
+      # Actions tab and emails the repo owner by default.
