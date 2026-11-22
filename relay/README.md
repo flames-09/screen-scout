@@ -5,15 +5,16 @@ API key**. It holds the upstream credentials, enforces a free quota per device, 
 answers back. It stores no screenshots, prompts, or answers.
 
 ```
-                              ┌─ text-only questions ───▶ Groq (gpt-oss-120b)
-Screen Scout ──HTTPS/SSE──▶ Worker
-                              └─ screenshot questions ──▶ Cloudflare Workers AI
-                                                          (Llama 4 Scout, multimodal)
+                              | text-only questions ----> Groq (gpt-oss-120b)
+Screen Scout --HTTPS/SSE--> Worker
+                              | screenshot questions ---> NVIDIA (Llama 4 Scout)
+                                                         fallback: Cloudflare Workers AI
+                                                         (Llama 4 Scout, multimodal)
 ```
 
-Image questions route to the multimodal provider; text-only turns can use the
-text provider for extra free capacity. A provider that cannot serve an image is
-never sent one.
+Image questions go to NVIDIA's hosted vision model first, with Cloudflare Workers
+AI as the fallback pool; text-only turns can use the text provider for extra free
+capacity. A provider that cannot serve an image is never sent one.
 
 ## What it enforces
 
@@ -22,6 +23,7 @@ never sent one.
 | Questions per device per day | 30 | `DEVICE_PER_DAY` |
 | Questions per device per 5-hour window | 10 | `DEVICE_PER_WINDOW`, `WINDOW_HOURS` |
 | Account-wide Groq requests/day | 900 | `GLOBAL_GROQ_PER_DAY` |
+| Account-wide NVIDIA requests/day | 400 | `GLOBAL_NVIDIA_PER_DAY` |
 | Account-wide Workers AI requests/day | 130 | `GLOBAL_CF_PER_DAY` |
 | Body size | 6 MB | `MAX_BODY_BYTES` |
 | Registrations per IP/day | 20 | `REGISTRATIONS_PER_IP_PER_DAY` |
@@ -45,6 +47,9 @@ npx wrangler d1 execute screen-scout-relay --remote --file=./schema.sql
 # 3. Secrets (paste the Groq key when prompted; generate a signing secret locally)
 npx wrangler secret put GROQ_API_KEY
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" | npx wrangler secret put TOKEN_SIGNING_SECRET
+
+# 3b. Optional: NVIDIA image pool (skipping it routes images to Workers AI only)
+npx wrangler secret put NVIDIA_API_KEY
 
 # 4. Deploy — note the printed https://screen-scout-relay.<subdomain>.workers.dev URL
 npx wrangler deploy
@@ -111,8 +116,19 @@ used by the E2E tests) or `node scripts/set-relay-url.mjs`.
 - **Privacy:** Cloudflare states Workers AI does not train on customer inputs. Groq's
   services agreement forbids training on API inputs/outputs and it does not retain
   inference data by default.
-- A `build.nvidia.com` trial key is **not** suitable for this: NVIDIA's API Trial Terms
-  restrict it to evaluation, not production serving.
+- **NVIDIA caveat (operator decision):** NVIDIA's API Trial Terms restrict free keys to
+  evaluation, "without use of the API Service or Generated Content in production", and
+  §3.3 lets NVIDIA use submitted content to improve its products. Serving the free tier
+  through one is a deliberate risk acceptance by the operator — the relay's privacy page
+  discloses this and points privacy-sensitive users at BYOK. BYOK remains untouched:
+  a user's own key is exercised directly by the app and never sees this relay.
+- **Capacity:** pools are independent, so worst-case hosted throughput is
+  400 NVIDIA + 130 Workers AI image questions plus 900 Groq text answers per day.
+  Workers AI additionally meters compute in "neurons" (10,000/day free) — roughly
+  45–350 neurons per image question depending on crop size — so the 130-request cap
+  keeps that budget safe; when NVIDIA absorbs image traffic, the neuron budget is
+  preserved as fallback headroom. All caps are header-driven: change `wrangler.toml`
+  and redeploy, no app release needed.
 
 ## Operations runbook
 

@@ -32,7 +32,10 @@ export interface EncodeResult {
 }
 
 const DEFAULT_MAX_ENCODED_BYTES = 5 * 1024 * 1024
-const DEFAULT_MAX_DIMENSION = 2048
+// 1536 rather than 2048: hosted vision models meter cost by image area, and
+// 1536 on the long edge cuts full-HD pixel area ~44% (≈2.25M → 1.25M px)
+// while staying well above the detail any UI crop needs.
+const DEFAULT_MAX_DIMENSION = 1536
 const JPEG_QUALITY = 88
 
 /** Downscale ladder applied to the original crop until the payload fits. */

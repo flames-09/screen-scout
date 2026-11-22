@@ -31,8 +31,15 @@ export type FetchLike = (input: string, init: { signal: AbortSignal }) => Promis
 
 /** Minimal fs surface for streaming the installer to disk (faked in tests). */
 export interface UpdateFs {
-  createWriteStream(path: string): { write(chunk: Uint8Array): unknown; end(): unknown; once(event: 'error' | 'finish', cb: () => void): unknown }
+  createWriteStream(path: string): {
+    write(chunk: Uint8Array): unknown
+    end(): unknown
+    once(event: 'error' | 'finish', cb: () => void): unknown
+    destroy(): unknown
+  }
   unlink(path: string): void
+  /** Optional existence probe (real fs provides existsSync-compatible). */
+  exists?(path: string): boolean
 }
 
 export interface SpawnLike {
@@ -112,23 +119,29 @@ export class UpdateService {
       return this.fail('Updates are not configured in this build.')
     }
     if (this.busy) return this.phase
+    // A downloaded-but-not-yet-installed update must not be clobbered by a
+    // re-check (manual or the 6-hour auto-check): it would orphan the
+    // verified installer and force a full re-download.
+    if (this.phase.kind === 'verified' || this.phase.kind === 'installing') return this.phase
     this.busy = true
     this.set({ kind: 'checking' })
     try {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS)
-      let response: Awaited<ReturnType<FetchLike>>
+      // The deadline covers the manifest BODY read too: headers alone arriving
+      // must not leave the service wedged in 'busy' forever.
+      let text: string
       try {
-        response = await this.deps.fetch(`${base.replace(/\/$/, '')}/updates/latest.json`, {
+        const response = await this.deps.fetch(`${base.replace(/\/$/, '')}/updates/latest.json`, {
           signal: controller.signal
         })
+        if (!response.ok) {
+          return this.fail(`Update feed returned HTTP ${response.status}.`)
+        }
+        text = await readBodyText(response)
       } finally {
         clearTimeout(timer)
       }
-      if (!response.ok) {
-        return this.fail(`Update feed returned HTTP ${response.status}.`)
-      }
-      const text = await readBodyText(response)
       let raw: unknown
       try {
         raw = JSON.parse(text)
@@ -161,19 +174,28 @@ export class UpdateService {
     this.busy = true
     let response: Awaited<ReturnType<FetchLike>> | null = null
     let target = ''
+    // Tracked so every failure path can release the file handle before the
+    // temp-file unlink (Windows refuses to unlink open files).
+    let stream: ReturnType<UpdateFs['createWriteStream']> | null = null
     try {
       const base = this.deps.baseUrl().trim()
       // Re-fetch the manifest so download uses fresh, validated values.
       const controller = new AbortController()
       const checkTimer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS)
-      const manifestResponse = await this.deps.fetch(`${base.replace(/\/$/, '')}/updates/latest.json`, {
-        signal: controller.signal
-      })
-      clearTimeout(checkTimer)
-      if (!manifestResponse.ok) {
-        return this.fail(`Update feed returned HTTP ${manifestResponse.status}.`)
+      // Deadline covers the body read as well (same rationale as check()).
+      let manifestText: string
+      try {
+        const manifestResponse = await this.deps.fetch(`${base.replace(/\/$/, '')}/updates/latest.json`, {
+          signal: controller.signal
+        })
+        if (!manifestResponse.ok) {
+          return this.fail(`Update feed returned HTTP ${manifestResponse.status}.`)
+        }
+        manifestText = await readBodyText(manifestResponse)
+      } finally {
+        clearTimeout(checkTimer)
       }
-      const parsed = updateManifestSchema.safeParse(JSON.parse(await readBodyText(manifestResponse)))
+      const parsed = updateManifestSchema.safeParse(JSON.parse(manifestText))
       if (!parsed.success) return this.fail('Update feed returned a malformed manifest.')
       const manifest: UpdateManifest = parsed.data
       if (!needsUpdate(manifest.version, this.deps.currentVersion())) {
@@ -202,7 +224,7 @@ export class UpdateService {
       const size = manifest.sizeBytes ?? 0
       const cap = Math.min(MAX_DOWNLOAD_BYTES, size > 0 ? Math.max(size + 1024 * 1024, size * 1.05) : MAX_DOWNLOAD_BYTES)
       target = this.deps.joinPath(this.deps.tempDir(), `Screen-Scout-setup-${manifest.version}.exe`)
-      const stream = this.deps.fs.createWriteStream(target)
+      stream = this.deps.fs.createWriteStream(target)
       const writeState: { error: Error | null } = { error: null }
       stream.once('error', () => {
         writeState.error = new Error('Could not write the installer to disk.')
@@ -217,7 +239,11 @@ export class UpdateService {
           received += chunk.length
           if (received > cap) {
             downloadController.abort()
-            return this.fail('Installer download exceeded the expected size.')
+            // Throw (not fail-and-return) so the outer catch releases the
+            // stream handle and unlinks the partial temp file.
+            const capError = new Error('Installer download exceeded the expected size.') as Error & { code?: string }
+            capError.code = 'UPDATE_SIZE_CAP'
+            throw capError
           }
           hash.update(chunk)
           stream.write(chunk)
@@ -232,10 +258,11 @@ export class UpdateService {
       } finally {
         clearTimeout(stall)
       }
-      stream.end()
+      const out = stream
+      out.end()
       const finished = await new Promise<boolean>((resolve) => {
-        stream.once('finish', () => resolve(true))
-        stream.once('error', () => resolve(false))
+        out.once('finish', () => resolve(true))
+        out.once('error', () => resolve(false))
       })
       if (!finished || writeState.error) {
         this.deps.fs.unlink(target)
@@ -252,10 +279,19 @@ export class UpdateService {
     } catch (error) {
       if (target) {
         try {
+          stream?.destroy()
+        } catch {
+          // best-effort cleanup
+        }
+        try {
           this.deps.fs.unlink(target)
         } catch {
           // best-effort cleanup
         }
+      }
+      const code = (error as { code?: unknown } | null)?.code
+      if (code === 'UPDATE_SIZE_CAP' && error instanceof Error) {
+        return this.fail(error.message)
       }
       const aborted = error instanceof Error && error.name === 'AbortError'
       return this.fail(aborted ? 'Installer download stalled.' : `Installer download failed: ${errorText(error)}`)
@@ -268,6 +304,12 @@ export class UpdateService {
   /** Launches the verified installer detached; the caller quits the app. */
   install(): boolean {
     if (this.phase.kind !== 'verified') return false
+    // The verified file can vanish between download and Install (temp
+    // cleaners); quitting on a missing installer would just kill the app.
+    if (this.deps.fs.exists?.(this.phase.filePath) === false) {
+      this.fail('The downloaded installer is gone. Check for updates and download it again.')
+      return false
+    }
     this.set({ kind: 'installing', version: this.phase.version })
     this.deps.spawn(this.phase.filePath, ['/S']).unref()
     return true

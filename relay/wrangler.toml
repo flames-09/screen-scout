@@ -8,16 +8,28 @@ workers_dev = true
 [vars]
 PUBLIC_MODEL_ID = "scout-vision-1"
 # Groq serves TEXT-ONLY turns (the account's free tier has no vision model);
-# image questions go straight to the Workers AI multimodal model below.
+# image questions go to NVIDIA's vision model first (when its secret is set)
+# and fall back to the Workers AI multimodal model below.
 GROQ_MODEL = "openai/gpt-oss-120b"
 CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+NVIDIA_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 DEVICE_PER_DAY = "30"
 DEVICE_PER_WINDOW = "10"
 WINDOW_HOURS = "5"
 GLOBAL_GROQ_PER_DAY = "900"
 GLOBAL_CF_PER_DAY = "130"
+# NVIDIA has no published daily cap (about 40 RPM per account) — this relay
+# cap keeps it predictable. NVIDIA_API_KEY itself is a SECRET:
+#   npx wrangler secret put NVIDIA_API_KEY
+GLOBAL_NVIDIA_PER_DAY = "400"
 MAX_BODY_BYTES = "6291456"
 REGISTRATIONS_PER_IP_PER_DAY = "20"
+# Google-account daily split (first-run choice: Google sign-in or own key).
+# GOOGLE_CLIENT_ID is the PUBLIC OAuth client id — safe as a var, but keep it
+# empty until the OAuth client exists; empty = /v1/auth/google answers 503.
+GOOGLE_CLIENT_ID = "461964937671-5nkjuee4m9r21uj93hvn99socga293m9.apps.googleusercontent.com"
+ACCOUNT_IMAGE_PER_DAY = "5"
+ACCOUNT_CHAT_PER_DAY = "50"
 # Kill switch: flip to "false" and redeploy to pause the whole free tier.
 HOSTED_ENABLED = "true"
 # Oldest app version the hosted service accepts; "0.0.0" disables the gate.
@@ -52,13 +64,18 @@ name = "screen-scout-relay-staging"
 PUBLIC_MODEL_ID = "scout-vision-1"
 GROQ_MODEL = "openai/gpt-oss-120b"
 CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+NVIDIA_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 DEVICE_PER_DAY = "30"
 DEVICE_PER_WINDOW = "10"
 WINDOW_HOURS = "5"
 GLOBAL_GROQ_PER_DAY = "900"
 GLOBAL_CF_PER_DAY = "130"
+GLOBAL_NVIDIA_PER_DAY = "400"
 MAX_BODY_BYTES = "6291456"
 REGISTRATIONS_PER_IP_PER_DAY = "20"
+GOOGLE_CLIENT_ID = "461964937671-5nkjuee4m9r21uj93hvn99socga293m9.apps.googleusercontent.com"
+ACCOUNT_IMAGE_PER_DAY = "5"
+ACCOUNT_CHAT_PER_DAY = "50"
 HOSTED_ENABLED = "true"
 MIN_APP_VERSION = "0.0.0"
 

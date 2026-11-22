@@ -24,7 +24,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   noticeAcknowledged: false,
   updatesEnabled: true,
   glassTint: 50,
-  maxImageBytes: DEFAULT_MAX_IMAGE_BYTES
+  maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
+  // Fresh installs see the first-run onboarding (Google sign-in OR own key);
+  // existing installs are marked onboarded by migrateOnboarding at startup.
+  onboarded: false,
+  authMethod: 'anonymous',
+  authEmail: '',
+  nudgeDismissed: false
 }
 
 /** Minimal fs surface so unit tests can run this against a temp directory. */
@@ -122,6 +128,14 @@ export function sanitizeSettings(input: Record<string, unknown>): AppSettings {
   ) {
     out.maxImageBytes = Math.round(input.maxImageBytes)
   }
+  if (typeof input.onboarded === 'boolean') out.onboarded = input.onboarded
+  if (input.authMethod === 'anonymous' || input.authMethod === 'google') out.authMethod = input.authMethod
+  if (typeof input.authEmail === 'string') {
+    const email = input.authEmail.trim()
+    // Display-only value; cap the length so a corrupt file cannot bloat the UI.
+    if (email.length <= 254) out.authEmail = email
+  }
+  if (typeof input.nudgeDismissed === 'boolean') out.nudgeDismissed = input.nudgeDismissed
   return out
 }
 

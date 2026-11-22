@@ -169,10 +169,12 @@ export async function quotaSnapshot(
   return snapshotFrom(now, limits, dayUsed, windowUsed)
 }
 
+export type ProviderId = 'groq' | 'cf' | 'nvidia'
+
 /** Account-wide budget for one upstream provider. */
 export async function reserveGlobal(
   store: QuotaStore,
-  provider: 'groq' | 'cf',
+  provider: ProviderId,
   limit: number,
   now = Date.now()
 ): Promise<boolean> {
@@ -183,7 +185,7 @@ export async function reserveGlobal(
 
 export async function releaseGlobal(
   store: QuotaStore,
-  provider: 'groq' | 'cf',
+  provider: ProviderId,
   now = Date.now()
 ): Promise<void> {
   await store.decrement(`global:${provider}:${dayBucket(now)}`)
@@ -210,4 +212,91 @@ export function limitsFromEnv(env: {
   const perWindow = Math.max(1, Math.min(perDay, Number(env.DEVICE_PER_WINDOW) || 10))
   const windowHours = Math.max(1, Math.min(24, Number(env.WINDOW_HOURS) || 5))
   return { perDay, perWindow, windowHours }
+}
+
+// ---- Google-account quotas --------------------------------------------------
+//
+// Accounts get a simple daily split instead of the device 5-hour window:
+// 5 image questions + 50 text questions per day. Counters reuse the same
+// `usage` table with acct-scoped keys, so no extra schema is needed and the
+// existing cron pruning cleans them up.
+
+export interface AccountLimits {
+  imagesPerDay: number
+  chatsPerDay: number
+}
+
+export interface AccountQuotaSnapshot {
+  imagesUsed: number
+  imagesLimit: number
+  imagesRemaining: number
+  chatsUsed: number
+  chatsLimit: number
+  chatsRemaining: number
+  dayResetAt: number
+}
+
+export type AccountQuestionKind = 'image' | 'chat'
+
+export function accountLimitsFromEnv(env: {
+  ACCOUNT_IMAGE_PER_DAY?: string
+  ACCOUNT_CHAT_PER_DAY?: string
+}): AccountLimits {
+  const imagesPerDay = Math.max(1, Math.min(200, Number(env.ACCOUNT_IMAGE_PER_DAY) || 5))
+  const chatsPerDay = Math.max(1, Math.min(1000, Number(env.ACCOUNT_CHAT_PER_DAY) || 50))
+  return { imagesPerDay, chatsPerDay }
+}
+
+function accountKey(hash: string, kind: AccountQuestionKind, now: number): string {
+  // `hash` arrives as 'acct:<hex>'; the bucket key adds the prefix once.
+  const bare = hash.startsWith('acct:') ? hash.slice(5) : hash
+  return `acct:${bare}:${kind === 'image' ? 'img' : 'txt'}:${dayBucket(now)}`
+}
+
+/**
+ * Reserves one question for a Google account. The `hash` is the HMAC-derived
+ * account id (`acct:<hex>`), never a raw Google sub.
+ */
+export async function reserveAccountQuestion(
+  store: QuotaStore,
+  hash: string,
+  kind: AccountQuestionKind,
+  limits: AccountLimits,
+  now = Date.now()
+): Promise<{ ok: true; used: number } | { ok: false; kind: AccountQuestionKind; used: number }> {
+  const limit = kind === 'image' ? limits.imagesPerDay : limits.chatsPerDay
+  const used = await store.incrementIfBelow(accountKey(hash, kind, now), limit, now + 2 * 24 * HOUR_MS)
+  if (used === null) return { ok: false, kind, used: limit }
+  return { ok: true, used }
+}
+
+/** Rolls back an account reservation when no upstream served the request. */
+export async function releaseAccountQuestion(
+  store: QuotaStore,
+  hash: string,
+  kind: AccountQuestionKind,
+  now = Date.now()
+): Promise<void> {
+  await store.decrement(accountKey(hash, kind, now))
+}
+
+export async function accountQuotaSnapshot(
+  store: QuotaStore,
+  hash: string,
+  limits: AccountLimits,
+  now = Date.now()
+): Promise<AccountQuotaSnapshot> {
+  const [imagesUsed, chatsUsed] = await Promise.all([
+    store.read(accountKey(hash, 'image', now)),
+    store.read(accountKey(hash, 'chat', now))
+  ])
+  return {
+    imagesUsed,
+    imagesLimit: limits.imagesPerDay,
+    imagesRemaining: Math.max(0, limits.imagesPerDay - imagesUsed),
+    chatsUsed,
+    chatsLimit: limits.chatsPerDay,
+    chatsRemaining: Math.max(0, limits.chatsPerDay - chatsUsed),
+    dayResetAt: dayResetAt(now)
+  }
 }

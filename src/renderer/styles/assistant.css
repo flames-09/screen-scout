@@ -607,3 +607,119 @@
 .resize-grip:hover {
   color: var(--accent);
 }
+
+/* ------------------------------------------------------ onboarding gate */
+.onboard-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: var(--accent-dim);
+  backdrop-filter: var(--blur-strong, blur(22px));
+}
+
+.onboard-card {
+  width: 100%;
+  max-width: 320px;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  background: var(--glass-2);
+  border: 1px solid var(--line-soft);
+  box-shadow: var(--specular-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.onboard-card h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.onboard-lede {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.75;
+  line-height: 1.45;
+}
+
+.onboard-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-soft);
+  background: var(--glass-3, rgba(255, 255, 255, 0.05));
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+
+.onboard-option:hover:not(:disabled) {
+  border-color: var(--line-accent-faint);
+  background: var(--accent-dim);
+}
+
+.onboard-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.onboard-option strong {
+  font-size: 12.5px;
+}
+
+.onboard-option span {
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0.72;
+}
+
+.onboard-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.75;
+}
+
+.onboard-note.warn {
+  color: var(--danger, #e5484d);
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------- hosted nudge */
+.nudge-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 16px;
+  padding: 8px 11px;
+  border-radius: var(--radius-md);
+  background: var(--accent-dim);
+  border: 1px solid var(--line-accent-faint);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.nudge-banner > span:first-child {
+  min-width: 0;
+}
+
+.nudge-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.nudge-error {
+  color: var(--danger, #e5484d);
+  flex-basis: 100%;
+  font-size: 11px;
+}
+

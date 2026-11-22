@@ -41,6 +41,22 @@ function quotaBody(state: E2eRelayState): Record<string, number> {
   }
 }
 
+/** Account-shaped quota info, matching the relay's {kind:'account',quota} wrapper. */
+function accountQuotaInfo(): Record<string, unknown> {
+  return {
+    kind: 'account',
+    accountQuota: {
+      imagesUsed: 0,
+      imagesLimit: 5,
+      imagesRemaining: 5,
+      chatsUsed: 0,
+      chatsLimit: 50,
+      chatsRemaining: 50,
+      dayResetAt: Date.now() + 3_600_000
+    }
+  }
+}
+
 /** Fake installer served by the mock update feed (deterministic bytes). */
 const E2E_INSTALLER = Buffer.alloc(64 * 1024, 7)
 const E2E_INSTALLER_SHA = createHash('sha256').update(E2E_INSTALLER).digest('hex')
@@ -84,17 +100,42 @@ export async function startE2eRelay(): Promise<E2eRelayHandle> {
       json(response, 200, {
         token: `e2e.${parsed.deviceId}.${Date.now()}`,
         expiresAt: Date.now() + 3_600_000,
-        quota: quotaBody(state)
+        quota: { kind: 'device', quota: quotaBody(state) }
+      })
+      return
+    }
+
+    // Google account sign-in (E2E): any id_token gets an account token whose
+    // quota uses the account shape (5 images / 50 chats per day).
+    if (url.pathname === '/v1/auth/google' && request.method === 'POST') {
+      const raw = await readBody(request)
+      try {
+        const parsed = JSON.parse(raw) as { idToken?: unknown; appVersion?: unknown }
+        state.requests.push(`auth:google idToken=${typeof parsed.idToken === 'string'} appVersion=${typeof parsed.appVersion === 'string'}`)
+      } catch {
+        // fall through — accept any body in the mock
+      }
+      json(response, 200, {
+        token: `e2e.acct.${Date.now()}`,
+        expiresAt: Date.now() + 3_600_000,
+        kind: 'account',
+        accountQuota: accountQuotaInfo().accountQuota
       })
       return
     }
 
     if (url.pathname === '/v1/quota' && request.method === 'GET') {
-      if (!request.headers['x-device-token']) {
+      const raw = request.headers['x-device-token']
+      const token = Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')
+      if (!token) {
         json(response, 401, { error: { code: 'unauthorized', message: 'missing token' } })
         return
       }
-      json(response, 200, { quota: quotaBody(state) })
+      if (token.startsWith('e2e.acct.')) {
+        json(response, 200, { quota: accountQuotaInfo() })
+        return
+      }
+      json(response, 200, { quota: { kind: 'device', quota: quotaBody(state) } })
       return
     }
 
@@ -114,7 +155,7 @@ export async function startE2eRelay(): Promise<E2eRelayHandle> {
               message: 'The free daily limit is used up.',
               retryAfterSec: 1200
             },
-            quota: quotaBody(state)
+            quota: { kind: 'device', quota: quotaBody(state) }
           },
           { 'Retry-After': '1200' }
         )

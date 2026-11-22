@@ -32,11 +32,12 @@ function makeDeps(overrides: {
   routes?: FakeRoute[]
   currentVersion?: string
   baseUrl?: string
-} = {}): { deps: UpdateDeps; phases: UpdatePhase[]; files: Map<string, Uint8Array[]>; unlinked: string[]; spawned: string[][] } {
+} = {}): { deps: UpdateDeps; phases: UpdatePhase[]; files: Map<string, Uint8Array[]>; unlinked: string[]; spawned: string[][]; destroyedStreams: string[] } {
   const phases: UpdatePhase[] = []
   const files = new Map<string, Uint8Array[]>()
   const unlinked: string[] = []
   const spawned: string[][] = []
+  const destroyedStreams: string[] = []
   const routes = overrides.routes ?? [
     {
       match: (url) => url.endsWith('/updates/latest.json'),
@@ -87,12 +88,17 @@ function makeDeps(overrides: {
             if (event === 'finish') finishCb = cb
             void cb
             return undefined
+          },
+          destroy: () => {
+            destroyedStreams.push(p)
+            return undefined
           }
         }
       },
       unlink: (p) => {
         unlinked.push(p)
-      }
+      },
+      exists: (p) => files.has(p)
     },
     spawn: (file, args) => {
       spawned.push([file, ...args])
@@ -100,7 +106,7 @@ function makeDeps(overrides: {
     },
     onState: (phase) => phases.push(phase)
   }
-  return { deps, phases, files, unlinked, spawned }
+  return { deps, phases, files, unlinked, spawned, destroyedStreams }
 }
 
 describe('version comparison', () => {
@@ -176,6 +182,20 @@ describe('UpdateService.check', () => {
     expect(phase.kind).toBe('error')
     if (phase.kind === 'error') expect(phase.message).toContain('not configured')
   })
+
+  it('does not clobber a verified update when re-checked', async () => {
+    const { deps, phases } = makeDeps()
+    const service = new UpdateService(deps)
+    await service.check()
+    await service.download()
+    expect(service.currentPhase().kind).toBe('verified')
+    const phaseCount = phases.length
+    const phase = await service.check()
+    expect(phase.kind).toBe('verified')
+    // No 'checking'/'available' transition may fire: the verified installer
+    // would be orphaned and the user forced to re-download.
+    expect(phases.length).toBe(phaseCount)
+  })
 })
 
 describe('UpdateService.download', () => {
@@ -217,6 +237,26 @@ describe('UpdateService.download', () => {
     const phase = await service.download()
     expect(phase.kind).toBe('idle')
   })
+
+  it('cleans up the temp file and stream when the download exceeds the size cap', async () => {
+    const oversized = Buffer.alloc(1_200_000, 3)
+    const { deps, unlinked, destroyedStreams } = makeDeps({
+      routes: [
+        { match: (url) => url.endsWith('latest.json'), respond: () => ({ status: 200, body: () => JSON.stringify(manifest({ sizeBytes: 1024 })) }) },
+        { match: () => true, respond: () => ({ status: 200, body: () => oversized }) }
+      ]
+    })
+    const service = new UpdateService(deps)
+    await service.check()
+    const phase = await service.download()
+    expect(phase.kind).toBe('error')
+    if (phase.kind === 'error') expect(phase.message).toContain('exceeded the expected size')
+    // The partial temp file and its write handle must both be released.
+    expect(unlinked.length).toBe(1)
+    expect(destroyedStreams.length).toBe(1)
+    // The service must not wedge in 'busy': a retry reaches the feed again.
+    expect(service.currentPhase().kind).toBe('error')
+  })
 })
 
 describe('UpdateService.install', () => {
@@ -230,5 +270,16 @@ describe('UpdateService.install', () => {
     expect(spawned.length).toBe(1)
     expect(spawned[0].slice(1)).toEqual(['/S'])
     expect(service.currentPhase().kind).toBe('installing')
+  })
+
+  it('refuses to install when the verified file has vanished', async () => {
+    const { deps, spawned } = makeDeps()
+    const service = new UpdateService(deps)
+    await service.check()
+    await service.download()
+    deps.fs.exists = () => false
+    expect(service.install()).toBe(false)
+    expect(spawned.length).toBe(0)
+    expect(service.currentPhase().kind).toBe('error')
   })
 })

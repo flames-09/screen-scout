@@ -47,18 +47,33 @@ export interface Env {
   UPDATES?: R2Bucket
   /** Secret — Groq API key (free tier). */
   GROQ_API_KEY?: string
+  /**
+   * Secret — NVIDIA build.nvidia.com API key. When present, image turns are
+   * served by NVIDIA's hosted vision model first, with Workers AI as fallback.
+   */
+  NVIDIA_API_KEY?: string
   /** Secret — HMAC key for device tokens. */
   TOKEN_SIGNING_SECRET?: string
   PUBLIC_MODEL_ID: string
   GROQ_MODEL: string
   CF_MODEL: string
+  /** NVIDIA vision model id (defaults to nvidia/nemotron-3.5-super-vl-120b-a12b). */
+  NVIDIA_MODEL?: string
   DEVICE_PER_DAY: string
   DEVICE_PER_WINDOW: string
   WINDOW_HOURS: string
   GLOBAL_GROQ_PER_DAY: string
   GLOBAL_CF_PER_DAY: string
+  /** Account-wide daily cap for the NVIDIA image pool (optional, default 400). */
+  GLOBAL_NVIDIA_PER_DAY?: string
   MAX_BODY_BYTES: string
   REGISTRATIONS_PER_IP_PER_DAY: string
+  /** Google Sign-In OAuth client id (public). Empty = /auth/google disabled. */
+  GOOGLE_CLIENT_ID?: string
+  /** Daily image-question cap per Google account (default 5). */
+  ACCOUNT_IMAGE_PER_DAY?: string
+  /** Daily text-question cap per Google account (default 50). */
+  ACCOUNT_CHAT_PER_DAY?: string
   /** Kill switch: set to "false" to pause the hosted service (maintenance). */
   HOSTED_ENABLED?: string
   /** Oldest app version the hosted service still accepts ("0.0.0" = no gate). */

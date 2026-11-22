@@ -26,6 +26,10 @@ function makeClient(overrides: Partial<HostedDeps> = {}): {
   const client = new HostedClient({
     relayUrl: () => 'https://relay.test/',
     deviceId: () => 'a'.repeat(32),
+    authMode: () => 'anonymous',
+    getGoogleIdToken: async () => {
+      throw new Error('no google in this test')
+    },
     getStoredToken: () => store.token,
     saveToken: (token) => {
       store.token = token
@@ -133,8 +137,9 @@ describe('HostedClient', () => {
     const { client } = makeClient()
 
     const quota = await client.fetchQuota()
-    expect(quota?.dayRemaining).toBe(27)
-    expect(quota?.windowRemaining).toBe(7)
+    expect(quota?.kind).toBe('device')
+    expect(quota?.kind === 'device' && quota.quota.dayRemaining).toBe(27)
+    expect(quota?.kind === 'device' && quota.quota.windowRemaining).toBe(7)
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -187,5 +192,142 @@ describe('HostedClient', () => {
     await client.refreshToken()
     expect(store.clears).toBe(1)
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('HostedClient google mode', () => {
+  function makeGoogleClient(overrides: Partial<HostedDeps> = {}): ReturnType<typeof makeClient> {
+    return makeClient({
+      authMode: () => 'google',
+      getGoogleIdToken: async () => 'e2e-id-token',
+      ...overrides
+    })
+  }
+
+  it('registers via /v1/auth/google using the fresh id token', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: futureToken(), expiresAt: Date.now() + 3_600_000 }))
+    const { client, store } = makeGoogleClient()
+
+    const headers = await client.chatHeaders()
+
+    expect(headers['x-device-token']).toMatch(/\.signature$/)
+    expect(store.saves).toBe(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://relay.test/v1/auth/google')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ idToken: 'e2e-id-token', appVersion: '0.1.0' })
+  })
+
+  it('maps a 401 to google-auth-required so the UI can prompt re-sign-in', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: { code: 'google-token-invalid' } }))
+    const { client } = makeGoogleClient()
+
+    const error = await client.ensureToken().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HostedError)
+    expect(error).toMatchObject({ code: 'google-auth-required' })
+  })
+
+  it('parses the account quota shape', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { token: futureToken(), expiresAt: Date.now() + 3_600_000 }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          quota: {
+            kind: 'account',
+            accountQuota: {
+              imagesUsed: 1,
+              imagesLimit: 5,
+              imagesRemaining: 4,
+              chatsUsed: 7,
+              chatsLimit: 50,
+              chatsRemaining: 43,
+              dayResetAt: Date.now() + 3_600_000
+            }
+          }
+        })
+      )
+    const { client } = makeGoogleClient()
+
+    const quota = await client.fetchQuota()
+    expect(quota?.kind).toBe('account')
+    if (quota?.kind === 'account') {
+      expect(quota.quota.imagesRemaining).toBe(4)
+      expect(quota.quota.chatsRemaining).toBe(43)
+    }
+  })
+
+  it('still parses the legacy device quota (no kind wrapper)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { token: futureToken(), expiresAt: Date.now() + 3_600_000 }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          quota: {
+            dayUsed: 3,
+            dayLimit: 30,
+            dayRemaining: 27,
+            dayResetAt: Date.now() + 3_600_000,
+            windowUsed: 3,
+            windowLimit: 10,
+            windowRemaining: 7,
+            windowResetAt: Date.now() + 1_800_000
+          }
+        })
+      )
+    const { client } = makeGoogleClient()
+
+    const quota = await client.fetchQuota()
+    expect(quota?.kind).toBe('device')
+  })
+})
+
+describe('HostedClient resetAuth + relay wire shapes', () => {
+  it('re-registers under the NEW authMode after resetAuth (no stale token reuse)', async () => {
+    let mode: 'anonymous' | 'google' = 'anonymous'
+    const { client, store } = makeClient({
+      authMode: () => mode,
+      getGoogleIdToken: async () => 'fresh-id-token'
+    })
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { token: futureToken(), expiresAt: Date.now() + 3_600_000 }))
+      .mockResolvedValueOnce(jsonResponse(200, { token: futureToken(7_200_000), expiresAt: Date.now() + 7_200_000 }))
+
+    await client.chatHeaders() // anonymous register
+    mode = 'google'
+    client.resetAuth()
+
+    const headers = await client.chatHeaders()
+    expect(headers['x-device-token']).toMatch(/\.signature$/)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(url).toBe('https://relay.test/v1/auth/google')
+    expect(JSON.parse(String(init.body))).toEqual({ idToken: 'fresh-id-token', appVersion: '0.1.0' })
+    expect(store.saves).toBe(2)
+  })
+
+  it('parses the REAL relay account quota shape (top-level kind/accountQuota)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { token: futureToken(), expiresAt: Date.now() + 3_600_000 }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          kind: 'account',
+          accountQuota: {
+            imagesUsed: 0,
+            imagesLimit: 5,
+            imagesRemaining: 5,
+            chatsUsed: 2,
+            chatsLimit: 50,
+            chatsRemaining: 48,
+            dayResetAt: Date.now() + 3_600_000
+          }
+        })
+      )
+    const { client } = makeClient({ authMode: () => 'google', getGoogleIdToken: async () => 't' })
+
+    const quota = await client.fetchQuota()
+    expect(quota?.kind).toBe('account')
+    if (quota?.kind === 'account') {
+      expect(quota.quota.imagesRemaining).toBe(5)
+      expect(quota.quota.chatsRemaining).toBe(48)
+    }
   })
 })

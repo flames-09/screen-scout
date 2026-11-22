@@ -11,6 +11,7 @@
  */
 
 import type { Env } from './types'
+import type { ProviderId } from './quota'
 import { translateWorkersAiStream } from './sse'
 
 export interface ChatRequestBody {
@@ -147,21 +148,31 @@ export function buildCfInput(body: ChatRequestBody): CfInput | null {
  * Decides which provider may serve this request. Image turns must go to a
  * multimodal provider — the Groq account's free tier has no vision model, so
  * a screenshot question would 400 there and burn budget. Text-only turns may
- * use Groq for extra free capacity.
+ * use Groq for extra free capacity. When an NVIDIA key is configured, image
+ * turns are served by NVIDIA's vision model first (it has no daily hard stop
+ * like Workers AI neurons) with Workers AI kept as the fallback.
  */
-export function routeProviders(env: Pick<Env, 'GROQ_API_KEY'>, wantsImage: boolean): 'groq-first' | 'cf-only' {
-  return env.GROQ_API_KEY && !wantsImage ? 'groq-first' : 'cf-only'
+export function routeProviders(
+  env: Pick<Env, 'GROQ_API_KEY' | 'NVIDIA_API_KEY'>,
+  wantsImage: boolean
+): 'groq-first' | 'nvidia-first' | 'cf-only' {
+  if (wantsImage) return env.NVIDIA_API_KEY ? 'nvidia-first' : 'cf-only'
+  return env.GROQ_API_KEY ? 'groq-first' : 'cf-only'
 }
 
 export type UpstreamAttempt =
-  | { ok: true; provider: 'groq' | 'cf'; response: Response }
-  | { ok: false; provider: 'groq' | 'cf'; status: number; detail: string }
+  | { ok: true; provider: ProviderId; response: Response }
+  | { ok: false; provider: ProviderId; status: number; detail: string }
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
+const DEFAULT_NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b'
 const CONNECT_TIMEOUT_MS = 9000
 
 export async function tryGroq(env: Env, body: ChatRequestBody, signal?: AbortSignal): Promise<UpstreamAttempt> {
-  const key = env.GROQ_API_KEY
+  // API keys are whitespace-free by construction; strip any whitespace so a
+  // pasted secret with a stray newline (or a wrapped copy) still works.
+  const key = (env.GROQ_API_KEY ?? '').replace(/\s+/g, '')
   if (!key) return { ok: false, provider: 'groq', status: 0, detail: 'GROQ_API_KEY is not configured.' }
 
   // The relay is public, so never forward arbitrary parameters (cost/abuse:
@@ -208,6 +219,69 @@ export async function tryGroq(env: Env, body: ChatRequestBody, signal?: AbortSig
     return {
       ok: false,
       provider: 'groq',
+      status: 0,
+      detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    }
+  } finally {
+    if (signal) signal.removeEventListener('abort', onClientAbort)
+  }
+}
+
+/**
+ * NVIDIA's build.nvidia.com catalog is OpenAI-compatible and accepts the same
+ * message shape the app already sends (text + image_url data-URL parts), so
+ * this is a near-clone of the Groq passthrough with a different endpoint and
+ * model. Vision model id defaults to the one the BYOK path has always used.
+ */
+export async function tryNvidia(env: Env, body: ChatRequestBody, signal?: AbortSignal): Promise<UpstreamAttempt> {
+  // API keys are whitespace-free by construction; strip any whitespace so a
+  // pasted secret with a stray newline (or a wrapped copy) still works.
+  const key = (env.NVIDIA_API_KEY ?? '').replace(/\s+/g, '')
+  if (!key) return { ok: false, provider: 'nvidia', status: 0, detail: 'NVIDIA_API_KEY is not configured.' }
+
+  // Same allow-list discipline as Groq: the relay is public, so no arbitrary
+  // client parameters ever reach the upstream endpoint.
+  const maxTokens = Math.min(2048, Math.max(64, Math.round(Number(body.max_tokens) || 1024)))
+  const temperature = Math.min(1, Math.max(0, Number(body.temperature ?? 0.2) || 0))
+  const payload = {
+    model: env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,
+    messages: body.messages,
+    temperature,
+    max_tokens: maxTokens,
+    stream: true
+  }
+
+  const controller = new AbortController()
+  const onClientAbort = (): void => controller.abort()
+  if (signal) {
+    if (signal.aborted) controller.abort()
+    else signal.addEventListener('abort', onClientAbort, { once: true })
+  }
+  const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(NVIDIA_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream'
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 300)
+      return { ok: false, provider: 'nvidia', status: response.status, detail: text }
+    }
+    if (!response.body) return { ok: false, provider: 'nvidia', status: 502, detail: 'NVIDIA returned an empty body.' }
+    return { ok: true, provider: 'nvidia', response }
+  } catch (error) {
+    clearTimeout(timer)
+    return {
+      ok: false,
+      provider: 'nvidia',
       status: 0,
       detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error)
     }

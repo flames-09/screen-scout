@@ -17,10 +17,12 @@ import * as path from 'node:path'
 
 const KEY_FILE = 'api-key.bin'
 const DEVICE_TOKEN_FILE = 'device-token.bin'
+const GOOGLE_REFRESH_FILE = 'google-refresh-token.bin'
 
 export class SecretStore {
   private sessionKey: string | null = null
   private sessionDeviceToken: string | null = null
+  private sessionGoogleRefreshToken: string | null = null
 
   isSecureStorageAvailable(): boolean {
     try {
@@ -145,9 +147,46 @@ export class SecretStore {
     }
   }
 
+  /**
+   * Google OAuth refresh token (account sign-in). Long-lived credential that
+   * mints short-lived Google id tokens — stored like every other secret:
+   * OS-encrypted when available, memory-only otherwise.
+   */
+  getGoogleRefreshToken(): string | null {
+    return this.readSecure(this.googleRefreshTokenPath(), this.sessionGoogleRefreshToken)
+  }
+
+  saveGoogleRefreshToken(token: string): { ok: boolean; secure: boolean; message?: string } {
+    const trimmed = token.trim()
+    if (trimmed.length === 0) return { ok: false, secure: false, message: 'Token is empty.' }
+    const result = this.writeSecure(
+      this.googleRefreshTokenPath(),
+      trimmed,
+      'OS-backed encryption is unavailable; the Google session token is kept in memory only.'
+    )
+    if (!result.secure) this.sessionGoogleRefreshToken = trimmed
+    else this.sessionGoogleRefreshToken = null
+    return result
+  }
+
+  removeGoogleRefreshToken(): void {
+    this.sessionGoogleRefreshToken = null
+    try {
+      const file = this.googleRefreshTokenPath()
+      if (fs.existsSync(file)) fs.rmSync(file)
+    } catch {
+      // Best-effort removal.
+    }
+  }
+
+  private googleRefreshTokenPath(): string {
+    return path.join(app.getPath('userData'), GOOGLE_REFRESH_FILE)
+  }
+
   /** Drops any session-only secrets (used on quit). */
   dispose(): void {
     this.sessionKey = null
     this.sessionDeviceToken = null
+    this.sessionGoogleRefreshToken = null
   }
 }

@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accountLimitsFromEnv,
+  accountQuotaSnapshot,
   dayBucket,
   dayResetAt,
   limitsFromEnv,
   quotaSnapshot,
+  releaseAccountQuestion,
   releaseGlobal,
   releaseQuestion,
+  reserveAccountQuestion,
   reserveGlobal,
   reserveQuestion,
   slotBucket,
   slotResetAt,
+  type AccountLimits,
   type QuotaStore,
   type QuotaLimits
 } from '../relay/src/quota'
@@ -156,5 +161,84 @@ describe('account-wide provider budgets', () => {
     expect(await reserveGlobal(store, 'groq', 2, now)).toBe(true)
     // Providers are separate budgets.
     expect(await reserveGlobal(store, 'cf', 2, now)).toBe(true)
+  })
+
+  it('tracks the NVIDIA image pool independently of Cloudflare', async () => {
+    const store = new MemoryStore()
+    const now = Date.now()
+    expect(await reserveGlobal(store, 'nvidia', 2, now)).toBe(true)
+    expect(await reserveGlobal(store, 'nvidia', 2, now)).toBe(true)
+    expect(await reserveGlobal(store, 'nvidia', 2, now)).toBe(false)
+    // Exhausting NVIDIA leaves Cloudflare untouched (fallback stays available).
+    expect(await reserveGlobal(store, 'cf', 2, now)).toBe(true)
+    await releaseGlobal(store, 'nvidia', now)
+    expect(await reserveGlobal(store, 'nvidia', 2, now)).toBe(true)
+  })
+})
+
+describe('google account quotas', () => {
+  it('allows 5 image and 50 chat questions per day, tracked independently', async () => {
+    const store = new MemoryStore()
+    const limits: AccountLimits = { imagesPerDay: 5, chatsPerDay: 50 }
+    const now = Date.UTC(2026, 10, 20, 10)
+
+    for (let i = 0; i < 5; i++) {
+      expect((await reserveAccountQuestion(store, 'acct:aa', 'image', limits, now)).ok).toBe(true)
+    }
+    expect((await reserveAccountQuestion(store, 'acct:aa', 'image', limits, now)).ok).toBe(false)
+
+    // Text budget untouched by the exhausted image budget.
+    for (let i = 0; i < 50; i++) {
+      expect((await reserveAccountQuestion(store, 'acct:aa', 'chat', limits, now)).ok).toBe(true)
+    }
+    expect((await reserveAccountQuestion(store, 'acct:aa', 'chat', limits, now)).ok).toBe(false)
+
+    const snapshot = await accountQuotaSnapshot(store, 'acct:aa', limits, now)
+    expect(snapshot.imagesUsed).toBe(5)
+    expect(snapshot.imagesRemaining).toBe(0)
+    expect(snapshot.chatsUsed).toBe(50)
+    expect(snapshot.chatsRemaining).toBe(0)
+    expect(snapshot.dayResetAt).toBe(Date.UTC(2026, 10, 21))
+  })
+
+  it('separates accounts and resets at the UTC day boundary', async () => {
+    const store = new MemoryStore()
+    const limits: AccountLimits = { imagesPerDay: 5, chatsPerDay: 50 }
+    const day1 = Date.UTC(2026, 10, 20, 23, 59)
+    const day2 = Date.UTC(2026, 10, 21, 0, 1)
+
+    expect((await reserveAccountQuestion(store, 'acct:aa', 'image', limits, day1)).ok).toBe(true)
+    expect((await reserveAccountQuestion(store, 'acct:bb', 'image', limits, day1)).ok).toBe(true)
+    expect((await reserveAccountQuestion(store, 'acct:aa', 'image', limits, day2)).ok).toBe(true)
+
+    expect(await accountQuotaSnapshot(store, 'acct:aa', limits, day1)).toMatchObject({ imagesUsed: 1 })
+    expect(await accountQuotaSnapshot(store, 'acct:aa', limits, day2)).toMatchObject({ imagesUsed: 1 })
+  })
+
+  it('refunds a reservation when no upstream served the request', async () => {
+    const store = new MemoryStore()
+    const limits: AccountLimits = { imagesPerDay: 5, chatsPerDay: 50 }
+    const now = Date.UTC(2026, 10, 20, 10)
+
+    await reserveAccountQuestion(store, 'acct:aa', 'chat', limits, now)
+    await reserveAccountQuestion(store, 'acct:aa', 'chat', limits, now)
+    await releaseAccountQuestion(store, 'acct:aa', 'chat', now)
+
+    expect(await accountQuotaSnapshot(store, 'acct:aa', limits, now)).toMatchObject({
+      chatsUsed: 1,
+      chatsRemaining: 49
+    })
+  })
+
+  it('reads account limits from env with sane clamps', () => {
+    expect(accountLimitsFromEnv({})).toEqual({ imagesPerDay: 5, chatsPerDay: 50 })
+    expect(accountLimitsFromEnv({ ACCOUNT_IMAGE_PER_DAY: '8', ACCOUNT_CHAT_PER_DAY: '75' })).toEqual({
+      imagesPerDay: 8,
+      chatsPerDay: 75
+    })
+    expect(accountLimitsFromEnv({ ACCOUNT_IMAGE_PER_DAY: '9999', ACCOUNT_CHAT_PER_DAY: '-3' })).toEqual({
+      imagesPerDay: 200,
+      chatsPerDay: 1
+    })
   })
 })

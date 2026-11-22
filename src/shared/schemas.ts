@@ -45,9 +45,21 @@ export const settingsSchema = z.object({
   noticeAcknowledged: z.boolean(),
   /** Periodic + on-demand update checks against the relay's update feed. */
   updatesEnabled: z.boolean().default(true),
-  /** Glass tint strength 0–100 (50 = shipped default look). */
+  /** Glass tint strength 0-100 (50 = shipped default look). */
   glassTint: z.number().int().min(0).max(100).default(50),
-  maxImageBytes: z.number().int().min(256 * 1024).max(10 * 1024 * 1024).default(DEFAULT_MAX_IMAGE_BYTES)
+  maxImageBytes: z.number().int().min(256 * 1024).max(10 * 1024 * 1024).default(DEFAULT_MAX_IMAGE_BYTES),
+  /**
+   * First-run onboarding finished. Privileged: the renderer may NOT set this
+   * through settings:save — the main process strips it from renderer patches
+   * and owns it via dedicated onboarding IPC.
+   */
+  onboarded: z.boolean().default(false),
+  /** Hosted free-tier identity. Privileged: stripped from renderer patches. */
+  authMethod: z.enum(['anonymous', 'google']).default('anonymous'),
+  /** Google account email, display only. Privileged: stripped from renderer patches. */
+  authEmail: z.string().max(254).default(''),
+  /** The existing-user Google nudge banner was dismissed. Privileged likewise. */
+  nudgeDismissed: z.boolean().default(false)
 })
 export type SettingsPayload = z.infer<typeof settingsSchema>
 

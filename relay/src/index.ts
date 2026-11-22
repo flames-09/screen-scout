@@ -15,21 +15,35 @@
  * Deploy: see relay/README.md. Secrets: GROQ_API_KEY, TOKEN_SIGNING_SECRET.
  */
 
-import { issueToken, isValidDeviceId, verifyToken, TOKEN_TTL_SECONDS } from './auth'
+import {
+  accountHashFromGoogleSub,
+  isAccountDeviceId,
+  issueToken,
+  isValidDeviceId,
+  verifyGoogleIdToken,
+  verifyToken,
+  TOKEN_TTL_SECONDS
+} from './auth'
 import { isOlderThan } from './version'
 import {
   D1QuotaStore,
+  accountLimitsFromEnv,
+  accountQuotaSnapshot,
   limitsFromEnv,
   quotaSnapshot,
+  releaseAccountQuestion,
   releaseGlobal,
   releaseQuestion,
+  reserveAccountQuestion,
   reserveGlobal,
   reserveQuestion,
   reserveRegistration,
+  type AccountQuestionKind,
+  type AccountQuotaSnapshot,
   type QuotaSnapshot
 } from './quota'
 import { landingPage, privacyPage, termsPage } from './pages'
-import { parseChatBody, requestHasImage, routeProviders, tryGroq, tryWorkersAi, type ChatRequestBody } from './upstream'
+import { parseChatBody, requestHasImage, routeProviders, tryGroq, tryNvidia, tryWorkersAi, type ChatRequestBody } from './upstream'
 import type { Env, ExecutionContextLike, ScheduledEventLike } from './types'
 
 const RELAY_VERSION = '1.0.0'
@@ -49,7 +63,12 @@ function apiError(
   status: number,
   code: string,
   message: string,
-  extra: { retryAfterSec?: number; quota?: QuotaSnapshot; detail?: string } = {}
+  extra: {
+    retryAfterSec?: number
+    quota?: QuotaSnapshot
+    accountQuota?: AccountQuotaSnapshot
+    detail?: string
+  } = {}
 ): Response {
   const headers: Record<string, string> = {}
   if (extra.retryAfterSec !== undefined) headers['Retry-After'] = String(Math.max(1, Math.ceil(extra.retryAfterSec)))
@@ -62,7 +81,8 @@ function apiError(
         ...(extra.detail ? { detail: extra.detail.slice(0, 300) } : {}),
         ...(extra.retryAfterSec !== undefined ? { retryAfterSec: Math.max(1, Math.ceil(extra.retryAfterSec)) } : {})
       },
-      ...(extra.quota ? { quota: extra.quota } : {})
+      ...(extra.quota ? { quota: extra.quota } : {}),
+      ...(extra.accountQuota ? { accountQuota: extra.accountQuota } : {})
     },
     headers
   )
@@ -110,7 +130,7 @@ function quotaHeaders(snapshot: QuotaSnapshot): Record<string, string> {
   }
 }
 
-function sseHeaders(provider: 'groq' | 'cf', snapshot: QuotaSnapshot): Headers {
+function sseHeaders(provider: 'groq' | 'cf' | 'nvidia', snapshot: QuotaSnapshot): Headers {
   const headers = new Headers({
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -120,6 +140,33 @@ function sseHeaders(provider: 'groq' | 'cf', snapshot: QuotaSnapshot): Headers {
     'x-relay-version': RELAY_VERSION
   })
   for (const [key, value] of Object.entries(quotaHeaders(snapshot))) headers.set(key, value)
+  return headers
+}
+
+function accountQuotaHeaders(snapshot: AccountQuotaSnapshot): Record<string, string> {
+  const now = Date.now()
+  return {
+    'x-scout-kind': 'account',
+    'x-scout-images-remaining': String(snapshot.imagesRemaining),
+    'x-scout-images-limit': String(snapshot.imagesLimit),
+    'x-scout-chats-remaining': String(snapshot.chatsRemaining),
+    'x-scout-chats-limit': String(snapshot.chatsLimit),
+    'x-scout-day-reset': String(Math.round(snapshot.dayResetAt / 1000)),
+    'x-scout-now': String(Math.round(now / 1000))
+  }
+}
+
+/** Streaming headers for a signed-in account (image/chat split instead of day/window). */
+function sseAccountHeaders(provider: 'groq' | 'cf' | 'nvidia', snapshot: AccountQuotaSnapshot): Headers {
+  const headers = new Headers({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'x-scout-provider': provider,
+    'x-relay-version': RELAY_VERSION
+  })
+  for (const [key, value] of Object.entries(accountQuotaHeaders(snapshot))) headers.set(key, value)
   return headers
 }
 
@@ -191,6 +238,51 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   )
 }
 
+/**
+ * Google Sign-In exchange: the app obtains an ID token via system-browser
+ * OAuth (PKCE, loopback redirect) and trades it here for the same HMAC token
+ * devices use. The relay verifies the token with Google, stores ONLY a keyed
+ * hash of the subject id, and issues an `acct:<hex>` token. Per-IP throttle
+ * shared with anonymous registration stops token farming.
+ */
+async function handleGoogleAuth(request: Request, env: Env): Promise<Response> {
+  if (!env.TOKEN_SIGNING_SECRET) {
+    return apiError(500, 'misconfigured', 'The relay is missing its signing secret.')
+  }
+  // Parse the body BEFORE the service gate: the version claim needed to
+  // evaluate MIN_APP_VERSION correctly rides in it ('unknown' would 426
+  // every client once a real minimum is set).
+  const body = await readJson(request)
+  const idToken = typeof body?.idToken === 'string' ? body.idToken : ''
+  const appVersion = typeof body?.appVersion === 'string' ? body.appVersion.slice(0, 40) : 'unknown'
+  const gated = hostedServiceGates(env, appVersion)
+  if (gated) return gated
+  const clientId = (env.GOOGLE_CLIENT_ID ?? '').trim()
+  if (!clientId) {
+    return apiError(503, 'google-not-configured', 'Google sign-in is not enabled on this relay yet.')
+  }
+
+  const claims = await verifyGoogleIdToken((url) => fetch(url), idToken, clientId)
+  if (!claims) {
+    return apiError(401, 'google-token-invalid', 'Google sign-in failed or the credential expired. Try again.')
+  }
+
+  const store = new D1QuotaStore(env.DB)
+  const registrationLimit = Math.max(1, Number(env.REGISTRATIONS_PER_IP_PER_DAY) || 5)
+  if (!(await reserveRegistration(store, clientIp(request), registrationLimit))) {
+    return apiError(429, 'rate-limit', 'Too many sign-ins from this network today.', { retryAfterSec: 3600 })
+  }
+
+  const hash = await accountHashFromGoogleSub(env.TOKEN_SIGNING_SECRET, claims.sub)
+  const { token, expiresAt } = await issueToken(env.TOKEN_SIGNING_SECRET, hash, appVersion)
+  const snapshot = await accountQuotaSnapshot(store, hash, accountLimitsFromEnv(env))
+  return json(
+    200,
+    { token, expiresAt, ttlSec: TOKEN_TTL_SECONDS, kind: 'account', accountQuota: snapshot },
+    accountQuotaHeaders(snapshot)
+  )
+}
+
 async function authenticate(request: Request, env: Env): Promise<{ deviceId: string; version: string } | Response> {
   if (!env.TOKEN_SIGNING_SECRET) {
     return apiError(500, 'misconfigured', 'The relay is missing its signing secret.')
@@ -224,7 +316,12 @@ async function handleQuota(request: Request, env: Env): Promise<Response> {
   if (auth instanceof Response) return auth
   const gated = hostedServiceGates(env, auth.version)
   if (gated) return gated
-  const snapshot = await quotaSnapshot(new D1QuotaStore(env.DB), auth.deviceId, limitsFromEnv(env))
+  const store = new D1QuotaStore(env.DB)
+  if (isAccountDeviceId(auth.deviceId)) {
+    const snapshot = await accountQuotaSnapshot(store, auth.deviceId, accountLimitsFromEnv(env))
+    return json(200, { kind: 'account', accountQuota: snapshot }, accountQuotaHeaders(snapshot))
+  }
+  const snapshot = await quotaSnapshot(store, auth.deviceId, limitsFromEnv(env))
   return json(200, { quota: snapshot }, quotaHeaders(snapshot))
 }
 
@@ -261,35 +358,108 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 
   const store = new D1QuotaStore(env.DB)
   const limits = limitsFromEnv(env)
+  const accountLimits = accountLimitsFromEnv(env)
   const now = Date.now()
 
-  const reservation = await reserveQuestion(store, auth.deviceId, limits, now)
-  if (!reservation.ok) {
-    const resetAt = reservation.reason === 'day' ? reservation.snapshot.dayResetAt : reservation.snapshot.windowResetAt
-    const retryAfterSec = Math.max(1, Math.ceil((resetAt - now) / 1000))
-    const label = reservation.reason === 'day' ? 'daily' : '5-hour'
-    return apiError(
-      429,
-      'quota-exceeded',
-      `The free ${label} limit is used up. It resets automatically — or switch to your own API key in Settings.`,
-      { retryAfterSec, quota: reservation.snapshot }
-    )
+  // Local reservation (device quota, or the account daily split) before any
+  // upstream contact; shared provider pools are reserved per attempt below.
+  const isAccount = isAccountDeviceId(auth.deviceId)
+  const wantsImage = requestHasImage(parsed.body)
+
+  type LocalReservation =
+    | { kind: 'device'; snapshot: QuotaSnapshot }
+    | { kind: 'account'; questionKind: AccountQuestionKind; snapshot: AccountQuotaSnapshot }
+
+  const releaseLocal = async (current: LocalReservation): Promise<void> => {
+    if (current.kind === 'account') await releaseAccountQuestion(store, auth.deviceId, current.questionKind, now)
+    else await releaseQuestion(store, auth.deviceId, limits, now)
+  }
+  const quotaExtra = (
+    current: LocalReservation
+  ): { quota?: QuotaSnapshot; accountQuota?: AccountQuotaSnapshot } =>
+    current.kind === 'account' ? { accountQuota: current.snapshot } : { quota: current.snapshot }
+  const streamHeaders = (current: LocalReservation, provider: 'groq' | 'cf' | 'nvidia'): Headers =>
+    current.kind === 'account' ? sseAccountHeaders(provider, current.snapshot) : sseHeaders(provider, current.snapshot)
+
+  let local: LocalReservation
+  if (isAccount) {
+    const questionKind: AccountQuestionKind = wantsImage ? 'image' : 'chat'
+    const reserved = await reserveAccountQuestion(store, auth.deviceId, questionKind, accountLimits, now)
+    if (!reserved.ok) {
+      const accountSnapshot = await accountQuotaSnapshot(store, auth.deviceId, accountLimits, now)
+      const limit = questionKind === 'image' ? accountLimits.imagesPerDay : accountLimits.chatsPerDay
+      const label = questionKind === 'image' ? 'image' : 'chat'
+      return apiError(
+        429,
+        'quota-exceeded',
+        `The account ${label} limit (${limit} per day) is used up. It resets at midnight UTC — or switch to your own API key in Settings.`,
+        {
+          retryAfterSec: Math.max(1, Math.ceil((accountSnapshot.dayResetAt - now) / 1000)),
+          accountQuota: accountSnapshot
+        }
+      )
+    }
+    local = {
+      kind: 'account',
+      questionKind,
+      snapshot: await accountQuotaSnapshot(store, auth.deviceId, accountLimits, now)
+    }
+  } else {
+    const reservation = await reserveQuestion(store, auth.deviceId, limits, now)
+    if (!reservation.ok) {
+      const resetAt = reservation.reason === 'day' ? reservation.snapshot.dayResetAt : reservation.snapshot.windowResetAt
+      const retryAfterSec = Math.max(1, Math.ceil((resetAt - now) / 1000))
+      const label = reservation.reason === 'day' ? 'daily' : '5-hour'
+      return apiError(
+        429,
+        'quota-exceeded',
+        `The free ${label} limit is used up. It resets automatically — or switch to your own API key in Settings.`,
+        { retryAfterSec, quota: reservation.snapshot }
+      )
+    }
+    local = { kind: 'device', snapshot: reservation.snapshot }
   }
 
   const body: ChatRequestBody = { ...parsed.body, stream: true }
-  const wantsImage = requestHasImage(body)
+  const route = routeProviders(env, wantsImage)
   const globalGroq = Math.max(1, Number(env.GLOBAL_GROQ_PER_DAY) || 900)
   const globalCf = Math.max(1, Number(env.GLOBAL_CF_PER_DAY) || 130)
+  const globalNvidia = Math.max(1, Number(env.GLOBAL_NVIDIA_PER_DAY) || 400)
 
   let groqBudgetExhausted = false
   let cfBudgetExhausted = false
+  let nvidiaBudgetExhausted = false
   let failureDetail = ''
 
-  if (routeProviders(env, wantsImage) === 'groq-first') {
+  if (route === 'nvidia-first') {
+    if (await reserveGlobal(store, 'nvidia', globalNvidia, now)) {
+      const attempt = await tryNvidia(env, body, request.signal)
+      if (attempt.ok) {
+        return new Response(attempt.response.body, { headers: streamHeaders(local, 'nvidia') })
+      }
+      // Same refund discipline as Groq: only a network-level failure (status 0)
+      // provably never reached NVIDIA; any HTTP answer stays counted.
+      if (attempt.status === 0 && !request.signal.aborted) await releaseGlobal(store, 'nvidia', now)
+      failureDetail += `nvidia ${attempt.status}: ${attempt.detail}`
+      console.warn('[relay] nvidia upstream failed', { status: attempt.status, detail: attempt.detail.slice(0, 300) })
+      // The client is gone — don't spend Workers AI neurons on an answer
+      // nobody will read.
+      if (request.signal.aborted) {
+        await releaseLocal(local)
+        return apiError(499, 'client-cancelled', 'The request was cancelled.', quotaExtra(local))
+      }
+      // An image turn NVIDIA rejected on its merits may still succeed on the
+      // Workers AI fallback below (different model, different limits).
+    } else {
+      nvidiaBudgetExhausted = true
+    }
+  }
+
+  if (route === 'groq-first') {
     if (await reserveGlobal(store, 'groq', globalGroq, now)) {
       const attempt = await tryGroq(env, body, request.signal)
       if (attempt.ok) {
-        return new Response(attempt.response.body, { headers: sseHeaders('groq', reservation.snapshot) })
+        return new Response(attempt.response.body, { headers: streamHeaders(local, 'groq') })
       }
       // Refund budget only when the request provably never reached Groq: a
       // network error (status 0) qualifies. A client abort does NOT — the
@@ -297,11 +467,12 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       // answer, which Groq has already accounted for.
       if (attempt.status === 0 && !request.signal.aborted) await releaseGlobal(store, 'groq', now)
       failureDetail = `groq ${attempt.status}: ${attempt.detail}`
+      console.warn('[relay] groq upstream failed', { status: attempt.status, detail: attempt.detail.slice(0, 300) })
       // The client is gone — never spend the scarcest budget (Workers AI
       // neurons) computing an answer nobody will read.
       if (request.signal.aborted) {
-        await releaseQuestion(store, auth.deviceId, limits, now)
-        return apiError(499, 'client-cancelled', 'The request was cancelled.', { quota: reservation.snapshot })
+        await releaseLocal(local)
+        return apiError(499, 'client-cancelled', 'The request was cancelled.', quotaExtra(local))
       }
       // A 4xx from Groq that is about the request itself will not get better
       // at Workers AI (different model, but malformed is malformed) — still
@@ -314,36 +485,37 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   if (await reserveGlobal(store, 'cf', globalCf, now)) {
     const attempt = await tryWorkersAi(env, body)
     if (attempt.ok) {
-      return new Response(attempt.response.body, { headers: sseHeaders('cf', reservation.snapshot) })
+      return new Response(attempt.response.body, { headers: streamHeaders(local, 'cf') })
     }
     // status 400 means buildCfInput rejected the request before calling the
     // model, so no neurons were spent; everything else stays counted.
     if (attempt.status === 0 || attempt.status === 400) await releaseGlobal(store, 'cf', now)
     failureDetail += ` | cf ${attempt.status}: ${attempt.detail}`
+    console.warn('[relay] cf upstream failed', { status: attempt.status, detail: attempt.detail.slice(0, 300) })
   } else {
     cfBudgetExhausted = true
   }
 
   // Nothing served the request: give the quota slot back and report honestly.
-  await releaseQuestion(store, auth.deviceId, limits, now)
+  await releaseLocal(local)
 
-  // An image turn has exactly one multimodal provider configured; when its
-  // budget is gone the service is effectively at capacity, even if the
-  // text-only provider still has room.
-  const noImageCapacity = wantsImage && cfBudgetExhausted
+  // An image turn has only multimodal providers (NVIDIA when configured, plus
+  // Workers AI); when both budgets are gone the service is effectively at
+  // capacity, even if the text-only provider still has room.
+  const noImageCapacity = wantsImage && cfBudgetExhausted && (!env.NVIDIA_API_KEY || nvidiaBudgetExhausted)
   if ((groqBudgetExhausted && cfBudgetExhausted) || noImageCapacity) {
-    const retryAfterSec = Math.max(60, Math.ceil((reservation.snapshot.dayResetAt - now) / 1000))
+    const retryAfterSec = Math.max(60, Math.ceil((local.snapshot.dayResetAt - now) / 1000))
     return apiError(
       503,
       'capacity-exhausted',
       'The free service is at capacity for today. It resets at midnight UTC — or switch to your own API key in Settings.',
-      { retryAfterSec, quota: reservation.snapshot, detail: failureDetail }
+      { retryAfterSec, ...quotaExtra(local), detail: failureDetail }
     )
   }
 
   return apiError(502, 'upstream-failed', 'The model provider did not answer. Try again in a moment.', {
     retryAfterSec: 20,
-    quota: reservation.snapshot,
+    ...quotaExtra(local),
     detail: failureDetail
   })
 }
@@ -384,9 +556,13 @@ export default {
         ok: true,
         version: RELAY_VERSION,
         groqConfigured: Boolean(env.GROQ_API_KEY),
+        nvidiaConfigured: Boolean(env.NVIDIA_API_KEY),
         signingConfigured: Boolean(env.TOKEN_SIGNING_SECRET),
+        googleConfigured: Boolean((env.GOOGLE_CLIENT_ID ?? '').trim()),
         limits: limitsFromEnv(env),
-        providers: ['groq', 'cloudflare-workers-ai']
+        providers: env.NVIDIA_API_KEY
+          ? ['nvidia', 'cloudflare-workers-ai', 'groq']
+          : ['groq', 'cloudflare-workers-ai']
       })
     }
 
@@ -399,6 +575,7 @@ export default {
     }
 
     if (path === '/v1/register' && request.method === 'POST') return handleRegister(request, env)
+    if (path === '/v1/auth/google' && request.method === 'POST') return handleGoogleAuth(request, env)
     if (path === '/v1/quota' && request.method === 'GET') return handleQuota(request, env)
     if (path === '/v1/chat/completions' && request.method === 'POST') return handleChat(request, env)
 

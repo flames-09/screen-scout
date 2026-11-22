@@ -16,6 +16,7 @@ import { AssistantHeader } from '../components/AssistantHeader'
 import { ChatMessage } from '../components/ChatMessage'
 import { Composer } from '../components/Composer'
 import { EmptyState } from '../components/EmptyState'
+import { OnboardingOverlay } from '../components/OnboardingOverlay'
 import { PrivacyNotice } from '../components/PrivacyNotice'
 import { RedactEditor } from '../components/RedactEditor'
 import { ResizeGrip, useAutoScroll } from '../components/ResizeGrip'
@@ -36,18 +37,31 @@ interface PendingPrompt {
 /**
  * Honest label for the header chip: what actually served the last answer.
  * Cloudflare's translated chunks carry the public alias (scout-vision-1), so
- * map that to the configured multimodal model; Groq chunks carry the real id.
+ * map that to the configured multimodal model; Groq and NVIDIA chunks carry
+ * the real id.
  */
+const MODEL_PRETTY: Record<string, string> = {
+  'scout-vision-1': 'Llama 4 Scout',
+  'meta/llama-3.2-90b-vision-instruct': 'Llama 3.2 90B'
+}
+
 function servedModelLabel(model: string | null, provider: string | null): string | null {
   if (!model && !provider) return null
-  const host = provider === 'cf' ? 'Cloudflare' : provider === 'groq' ? 'Groq' : null
-  const pretty = !model || model === 'scout-vision-1'
-    ? provider === 'cf'
-      ? 'Llama 4 Scout'
+  const host =
+    provider === 'cf'
+      ? 'Cloudflare'
+      : provider === 'groq'
+        ? 'Groq'
+        : provider === 'nvidia'
+          ? 'NVIDIA'
+          : null
+  const pretty = model && model in MODEL_PRETTY
+    ? MODEL_PRETTY[model]
+    : model
+      ? model.includes('/')
+        ? model.split('/')[1]
+        : model
       : ''
-    : model.includes('/')
-      ? model.split('/')[1]
-      : model
   if (pretty && host) return `${pretty} · ${host}`
   return pretty || host
 }
@@ -55,12 +69,15 @@ function servedModelLabel(model: string | null, provider: string | null): string
 export function AssistantApp(): JSX.Element {
   const [state, dispatch] = useReducer(chatReducer, undefined, initialChatState)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
+  const [nudgeError, setNudgeError] = useState<string | null>(null)
   const [pendingPrompt, setPendingPrompt] = useState<PendingPrompt | null>(null)
   const [backdrop, setBackdrop] = useState<string | null>(null)
   const [redacting, setRedacting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const stateRef = useRef(state)
   stateRef.current = state
+  // Mirrors the onboarding gate for the Esc handler (defined later in render).
+  const showOnboardingRef = useRef(false)
 
   // ---- Bootstrap -------------------------------------------------------------
   useEffect(() => {
@@ -302,6 +319,7 @@ export function AssistantApp(): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || e.repeat) return
+      if (showOnboardingRef.current) return // the setup gate must be answered first
       if (redacting) {
         setRedacting(false)
         return
@@ -470,6 +488,47 @@ export function AssistantApp(): JSX.Element {
     void window.scout.settings.open()
   }, [])
 
+  // ---- Onboarding gate + hosted nudge ------------------------------------------
+  const handleOnboardGoogle = useCallback(async (): Promise<string | null> => {
+    try {
+      const result = await window.scout.settings.hostedSignInWithGoogle()
+      if (result.ok) {
+        refreshSettings()
+        return null
+      }
+      return result.message ?? 'Google sign-in failed. Try again.'
+    } catch {
+      return 'Google sign-in failed. Try again.'
+    }
+  }, [refreshSettings])
+
+  const handleOnboardOwnKey = useCallback((): void => {
+    void window.scout.settings.hostedOnboardWithOwnKey().then(refreshSettings)
+    void window.scout.settings.open()
+  }, [refreshSettings])
+
+  const handleNudgeSignIn = useCallback((): void => {
+    setNudgeError(null)
+    void window.scout.settings.hostedSignInWithGoogle().then((result) => {
+      if (result.ok) refreshSettings()
+      else setNudgeError(result.message ?? 'Google sign-in failed. Try again.')
+    })
+  }, [refreshSettings])
+
+  const handleDismissNudge = useCallback((): void => {
+    void window.scout.settings.hostedDismissNudge().then(refreshSettings)
+  }, [refreshSettings])
+
+  const showOnboarding = settings !== null && !settings.onboarded
+  showOnboardingRef.current = showOnboarding
+  const showNudge =
+    settings !== null &&
+    settings.onboarded &&
+    settings.accessMode === 'hosted' &&
+    settings.authMethod === 'anonymous' &&
+    settings.hostedAvailable &&
+    !settings.nudgeDismissed
+
   // ---- Render helpers -------------------------------------------------------------------
   const busy = isBusy(state.phase)
   const showQuickPrompts = state.attachment !== null && state.messages.length === 0 && !busy
@@ -493,6 +552,13 @@ export function AssistantApp(): JSX.Element {
           aria-hidden="true"
         />
       )}
+      {showOnboarding && settings && (
+        <OnboardingOverlay
+          hostedAvailable={settings.hostedAvailable}
+          onGoogle={handleOnboardGoogle}
+          onOwnKey={handleOnboardOwnKey}
+        />
+      )}
       <AssistantHeader
         model={
           settings?.accessMode === 'hosted'
@@ -506,6 +572,25 @@ export function AssistantApp(): JSX.Element {
         onOpenSettings={handleOpenSettings}
         onHide={() => void window.scout.window.hide()}
       />
+
+      {showNudge && (
+        <div className="nudge-banner" role="status">
+          <span>Want more free usage? Sign in with Google for 5 screenshots and 50 chats a day.</span>
+          <span className="nudge-actions">
+            <button type="button" className="btn btn-ghost" onClick={handleNudgeSignIn}>
+              Sign in with Google
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={handleDismissNudge}>
+              Not now
+            </button>
+          </span>
+          {nudgeError && (
+            <span className="nudge-error" role="alert">
+              {nudgeError}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll} role="log" aria-label="Conversation">
         <EmptyState

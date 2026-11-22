@@ -5,7 +5,8 @@ import type {
   ChatEvent,
   ChatTurn,
   ConnectionTestResult,
-  HostedQuota,
+  GoogleSignInResult,
+  HostedQuotaInfo,
   ImageImportResult,
   PublicSettings,
   SelectionResult,
@@ -87,8 +88,24 @@ const scoutApi = {
       return ipcRenderer.invoke('connection:test', overrides ?? {})
     },
     /** Free-tier usage for the hosted mode meter (null when unavailable). */
-    getHostedQuota(): Promise<HostedQuota | null> {
+    getHostedQuota(): Promise<HostedQuotaInfo | null> {
       return ipcRenderer.invoke('hosted:quota')
+    },
+    /** Google account sign-in (onboarding or re-signin). Never blocks the main process. */
+    hostedSignInWithGoogle(): Promise<GoogleSignInResult> {
+      return ipcRenderer.invoke('hosted:auth-google')
+    },
+    /** Leave the Google account: back to anonymous hosted (device) quotas. */
+    hostedSignOut(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke('hosted:auth-signout')
+    },
+    /** Onboarding choice: use my own API key instead (marks onboarding done). */
+    hostedOnboardWithOwnKey(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke('hosted:onboard-byok')
+    },
+    /** Dismiss the "sign in for more" nudge banner. */
+    hostedDismissNudge(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke('hosted:dismiss-nudge')
     },
     open(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke('settings:open')

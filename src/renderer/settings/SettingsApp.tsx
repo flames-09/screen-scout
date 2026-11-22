@@ -5,7 +5,7 @@ import type {
   AccessMode,
   AppSettings,
   ConnectionTestResult,
-  HostedQuota,
+  HostedQuotaInfo,
   PublicSettings,
   UpdateStateSnapshot
 } from '@shared/types'
@@ -54,7 +54,7 @@ export function SettingsApp(): JSX.Element {
   const [captureMessage, setCaptureMessage] = useState<string | null>(null)
   const [diagMessage, setDiagMessage] = useState<string | null>(null)
   const [peekMessage, setPeekMessage] = useState<string | null>(null)
-  const [quota, setQuota] = useState<HostedQuota | null>(null)
+  const [quota, setQuota] = useState<HostedQuotaInfo | null>(null)
   const [quotaFailed, setQuotaFailed] = useState(false)
 
   const loadQuota = useCallback((): void => {
@@ -100,10 +100,18 @@ export function SettingsApp(): JSX.Element {
   // window also re-reads settings + quota, since it stays alive between opens.
   useEffect(() => {
     return window.scout.window.onVisibility((payload) => {
-      if (payload.visible) load()
-      else setBackdrop(null)
+      if (payload.visible) {
+        load()
+      } else {
+        setBackdrop(null)
+        // Drop an uncommitted tint drag and restore the saved var: the var
+        // effect below is keyed on value equality, so a stale preview could
+        // otherwise survive into the next open.
+        setTintDraft(null)
+        document.documentElement.style.setProperty('--glass-tint', String(settings?.glassTint ?? 50))
+      }
     })
-  }, [load])
+  }, [load, settings?.glassTint])
   useEffect(() => {
     return window.scout.window.onBackdrop(setBackdrop)
   }, [])
@@ -262,13 +270,22 @@ export function SettingsApp(): JSX.Element {
 
   const saveTint = useCallback(
     async (value: number): Promise<void> => {
-      setTintDraft(null)
+      let committed = false
       await guard(async () => {
         const updated = await window.scout.settings.save({ glassTint: value })
         setSettings(updated)
+        committed = true
       })
+      // Release the draft only after the save resolves: clearing it early
+      // makes the thumb flick back to the saved value mid-save.
+      setTintDraft(null)
+      if (!committed) {
+        // Save failed: snap the preview var back to the saved value so the
+        // DOM can't desync from settings (the var effect skips equal values).
+        document.documentElement.style.setProperty('--glass-tint', String(settings?.glassTint ?? 50))
+      }
     },
-    [guard]
+    [guard, settings?.glassTint]
   )
 
   const toggleStartup = useCallback(async (): Promise<void> => {
@@ -346,13 +363,46 @@ export function SettingsApp(): JSX.Element {
 
   const isSuggested = SUGGESTED_VISION_MODELS.some((m) => m.id === modelDraft)
 
+  const [accountMessage, setAccountMessage] = useState<string | null>(null)
+
+  const handleGoogleSignIn = useCallback(async (): Promise<void> => {
+    setAccountMessage(null)
+    try {
+      const result = await window.scout.settings.hostedSignInWithGoogle()
+      if (result.ok) {
+        load()
+        if (result.persisted === false) {
+          setAccountMessage("Secure storage is unavailable — you'll need to sign in again after restarting.")
+        }
+      } else {
+        setAccountMessage(result.message ?? 'Google sign-in failed.')
+      }
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : 'Google sign-in failed.')
+    }
+  }, [load])
+
+  const handleSignOut = useCallback(async (): Promise<void> => {
+    setAccountMessage(null)
+    try {
+      await window.scout.settings.hostedSignOut()
+      load()
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : 'Sign-out failed.')
+    }
+  }, [load])
+
   const quotaSummary = quota
-    ? `${quota.dayRemaining} of ${quota.dayLimit} questions left today · ${quota.windowRemaining} of ${quota.windowLimit} in this window`
+    ? quota.kind === 'account'
+      ? `${quota.quota.imagesRemaining} of ${quota.quota.imagesLimit} screenshots and ${quota.quota.chatsRemaining} of ${quota.quota.chatsLimit} chats left today`
+      : `${quota.quota.dayRemaining} of ${quota.quota.dayLimit} questions left today · ${quota.quota.windowRemaining} of ${quota.quota.windowLimit} in this window`
     : quotaFailed
       ? 'Free quota is unavailable right now — the relay did not answer.'
       : 'Checking your free quota…'
   const quotaReset = quota
-    ? `Today resets at ${new Date(quota.dayResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; this window at ${new Date(quota.windowResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+    ? quota.kind === 'account'
+      ? `Resets at ${new Date(quota.quota.dayResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (midnight UTC).`
+      : `Today resets at ${new Date(quota.quota.dayResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; this window at ${new Date(quota.quota.windowResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
     : ''
 
   return (
@@ -432,6 +482,34 @@ export function SettingsApp(): JSX.Element {
               <div className="quota-meter" role="status" aria-live="polite">
                 <div className="quota-line">{quotaSummary}</div>
                 {quotaReset && <div className="quota-reset">{quotaReset}</div>}
+              </div>
+            )}
+            {settings.hostedAvailable && (
+              <div className="account-row">
+                <span className="account-email">
+                  {settings.authMethod === 'google'
+                    ? `Google account: ${settings.authEmail || 'signed in'}`
+                    : 'Anonymous device (no sign-in)'}
+                </span>
+                {settings.authMethod === 'google' ? (
+                  <button type="button" className="btn" onClick={() => void handleSignOut()}>
+                    Sign out
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void handleGoogleSignIn()}
+                    title="Sign in with Google for higher free limits (5 screenshots and 50 chats per day, per account)"
+                  >
+                    Sign in with Google
+                  </button>
+                )}
+              </div>
+            )}
+            {accountMessage && (
+              <div className="settings-note warn" role="alert">
+                {accountMessage}
               </div>
             )}
             {settings.accessMode === 'byok' && (
@@ -735,6 +813,7 @@ export function SettingsApp(): JSX.Element {
                 document.documentElement.style.setProperty('--glass-tint', String(value))
               }}
               onPointerUp={(e) => void saveTint(Number((e.target as HTMLInputElement).value))}
+              onPointerCancel={(e) => void saveTint(Number((e.target as HTMLInputElement).value))}
               onKeyUp={(e) => void saveTint(Number((e.target as HTMLInputElement).value))}
               disabled={!settings}
             />
@@ -820,7 +899,8 @@ export function SettingsApp(): JSX.Element {
             {settings?.accessMode === 'hosted' ? (
               <>
                 When you press <strong>Send</strong>, the selected screenshot crop and your question are sent
-                to Screen Scout&apos;s relay and forwarded to a free-tier model provider. Nothing is uploaded
+                to Screen Scout&apos;s relay and forwarded to a free-tier model provider (NVIDIA, Cloudflare,
+                or Groq). Nothing is uploaded
                 before that, no account is created, and the relay stores no screenshots or prompts — only an
                 anonymous device id and usage counters. Prefer direct access? Choose{' '}
                 <strong>My own NVIDIA key</strong> above.

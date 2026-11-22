@@ -5,7 +5,7 @@ import type {
   ChatEvent,
   ChatTurn,
   ConnectionTestResult,
-  HostedQuota
+  HostedQuotaInfo
 } from '@shared/types'
 import { HOSTED_MAX_IMAGE_BYTES, HOSTED_PUBLIC_MODEL } from '@shared/hosted'
 import { buildNimRequest, nimError, streamNimChat, type BuiltRequest, type FetchLike } from './nim-client'
@@ -44,7 +44,7 @@ export class ChatService {
       /** The hosted relay client (may be unavailable when no URL is baked in). */
       getHosted(): HostedClient
       /** Lets the main process cache the latest quota for Settings/EmptyState. */
-      onHostedQuota?(quota: HostedQuota | null): void
+      onHostedQuota?(quota: HostedQuotaInfo | null): void
     }
   ) {}
 
@@ -103,6 +103,16 @@ export class ChatService {
         fail(
           nimError('hosted-unavailable', {
             detail: 'This build has no hosted relay URL configured. Switch to your own API key in Settings.'
+          })
+        )
+        return
+      }
+      // Defense in depth: first-run onboarding must be completed before any
+      // question leaves the app (the renderer also gates its composer).
+      if (!settings.onboarded) {
+        fail(
+          nimError('hosted-unavailable', {
+            detail: 'Finish setup first — sign in with Google or add your own API key.'
           })
         )
         return
@@ -288,7 +298,7 @@ export class ChatService {
   }
 
   /** Refreshes the cached quota used by Settings and the empty state. */
-  async refreshQuota(): Promise<HostedQuota | null> {
+  async refreshQuota(): Promise<HostedQuotaInfo | null> {
     const quota = await this.deps.getHosted().fetchQuota()
     try {
       this.deps.onHostedQuota?.(quota)
@@ -308,6 +318,15 @@ export class ChatService {
 function hostedFailure(error: unknown): ChatErrorMessage {
   if (isChatError(error)) return error
   if (error instanceof HostedError) {
+    if (error.code === 'google-auth-required') {
+      // The account needs an interactive sign-in again — surface it as an
+      // actionable hosted bubble rather than a generic server error.
+      return nimError('hosted-unavailable', {
+        message: 'Your Google session ended. Sign in again to keep using the free service.',
+        detail: error.message,
+        retryable: false
+      })
+    }
     if (error.code === 'network' || error.code === 'unavailable') {
       return nimError('hosted-unavailable', { detail: error.message })
     }

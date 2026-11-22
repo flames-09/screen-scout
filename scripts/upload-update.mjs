@@ -25,7 +25,14 @@ const version = pkg.version
 const BUCKET = 'screen-scout-updates'
 
 const notesArg = process.argv.indexOf('--notes')
-const notes = notesArg !== -1 ? process.argv[notesArg + 1] : ''
+// The app validates the manifest with `notes` max 2000 — an over-long note
+// would make EVERY client reject the feed, so truncate rather than publish.
+const MAX_NOTES_CHARS = 2000
+const rawNotes = notesArg !== -1 ? process.argv[notesArg + 1] : ''
+const notes = rawNotes.length > MAX_NOTES_CHARS ? `${rawNotes.slice(0, MAX_NOTES_CHARS - 1)}…` : rawNotes
+if (notes !== rawNotes) {
+  console.warn(`--notes truncated to ${MAX_NOTES_CHARS} characters (app schema limit).`)
+}
 
 const exeName = `Screen-Scout-${version}-setup.exe`
 const exePath = join(root, 'dist', exeName)

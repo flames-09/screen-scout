@@ -4,8 +4,15 @@ import * as os from 'node:os'
 import * as fs from 'node:fs'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import type { HostedQuota, ImageImportResult, PublicSettings, SendMessageResult } from '@shared/types'
-import { HOSTED_RELAY_URL } from '@shared/hosted'
+import type {
+  GoogleSignInResult,
+  AppSettings,
+  HostedQuotaInfo,
+  ImageImportResult,
+  PublicSettings,
+  SendMessageResult
+} from '@shared/types'
+import { HOSTED_GOOGLE_CLIENT_ID, HOSTED_RELAY_URL } from '@shared/hosted'
 import {
   apiKeySchema,
   openExternalSchema,
@@ -19,6 +26,7 @@ import { SettingsStore, assertSettingsPatch } from './settings/settings-store'
 import { SecretStore } from './security/secrets'
 import { ChatService } from './ai/chat-service'
 import { HostedClient } from './ai/hosted-client'
+import { GoogleAuthManager } from './ai/google-auth-manager'
 import { UpdateService, type UpdatePhase } from './updates/update-service'
 import { Logger } from './logging/logger'
 import { startE2eRelay, type E2eRelayHandle } from './e2e-relay'
@@ -147,6 +155,10 @@ function bootstrap(): void {
     } else if (settingsWindow && webContents === settingsWindow.webContents) {
       settingsWindow.destroy()
       settingsWindow = null
+    } else {
+      // A crashed selection overlay is not tracked here: cancel the active
+      // capture so the dead overlay is destroyed and selections unblock.
+      captureService.cancelIfActive()
     }
   })
   app.on('child-process-gone', (_event, details) => {
@@ -163,7 +175,7 @@ function bootstrap(): void {
     return (override || HOSTED_RELAY_URL).trim()
   }
 
-  let hostedQuotaCache: HostedQuota | null = null
+  let hostedQuotaCache: HostedQuotaInfo | null = null
 
   const ensureDeviceId = (): string => {
     const existing = settingsStore.load().deviceId
@@ -207,6 +219,102 @@ function bootstrap(): void {
     settingsStore.update({ accessMode: 'byok' })
   }
 
+  /**
+   * Upgrades from a pre-onboarding build: installs that already used the app
+   * keep working without a forced gate — they land as anonymous + onboarded,
+   * and see the dismissible "sign in for more" nudge instead.
+   */
+  const migrateOnboarding = (): void => {
+    if (E2E_TEST || INTEGRATION_TEST) {
+      settingsStore.update({ onboarded: true })
+      return
+    }
+    try {
+      const file = path.join(app.getPath('userData'), 'settings.json')
+      if (!fs.existsSync(file)) return
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+      if (raw && typeof raw === 'object' && raw.onboarded === undefined) {
+        settingsStore.update({ onboarded: true })
+      }
+    } catch {
+      // Unreadable settings fall back to defaults; nothing to migrate.
+    }
+  }
+  migrateOnboarding()
+
+  // E2E: Google sign-in is driven without a real browser or network. The fake
+  // openExternal parses the flow's loopback auth URL and "completes" consent by
+  // fetching the redirect with a synthetic code; the token exchange is answered
+  // locally with a fake JWT. Nothing here reaches Google.
+  const e2eGoogleOpenExternal = async (url: string): Promise<void> => {
+    try {
+      const parsed = new URL(url)
+      const redirect = parsed.searchParams.get('redirect_uri') ?? ''
+      const state = parsed.searchParams.get('state') ?? ''
+      if (redirect) {
+        await net.fetch(`${redirect}?code=e2e-fake-code&state=${encodeURIComponent(state)}`)
+      }
+    } catch {
+      // The flow surfaces its own timeout/errors; nothing to log here.
+    }
+  }
+  const e2eFakeIdToken = (): string => {
+    const b64 = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString('base64url')
+    return [
+      b64({ alg: 'none', typ: 'JWT' }),
+      b64({
+        sub: 'e2e-sub-1',
+        email: 'e2e-tester@screenscout.test',
+        exp: Math.floor(Date.now() / 1000) + 3600
+      }),
+      'sig'
+    ].join('.')
+  }
+  const e2eGoogleTokenFetch = async (
+    url: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string }
+  ): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> => {
+    if (url.startsWith('https://oauth2.googleapis.com/token')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id_token: e2eFakeIdToken(),
+          refresh_token: 'e2e-refresh-token',
+          access_token: 'e2e-access-token'
+        })
+      }
+    }
+    return net.fetch(url, init) as unknown as Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
+  }
+
+  // --- Google account sign-in (free tier with higher, per-account limits) ----
+  // The refresh token lives in the OS secure store; only short-lived id tokens
+  // ever touch memory. The manager is created before HostedClient so hosted
+  // registration can pull a fresh id token when authMethod is 'google'.
+  const googleAuth = new GoogleAuthManager({
+    clientId: () => HOSTED_GOOGLE_CLIENT_ID,
+    getRefreshToken: () => secrets.getGoogleRefreshToken(),
+    saveRefreshToken: (token) => {
+      const result = secrets.saveGoogleRefreshToken(token)
+      return result.secure
+    },
+    clearRefreshToken: () => secrets.removeGoogleRefreshToken(),
+    openExternal: E2E_TEST
+      ? e2eGoogleOpenExternal
+      : (url) => {
+          void shell.openExternal(url)
+        },
+    fetchImpl: E2E_TEST
+      ? e2eGoogleTokenFetch
+      : (url, init) =>
+          net.fetch(url, init) as unknown as Promise<{
+            ok: boolean
+            status: number
+            json(): Promise<unknown>
+          }>
+  })
+
   const hostedClient = new HostedClient({
     relayUrl,
     deviceId: ensureDeviceId,
@@ -215,7 +323,12 @@ function bootstrap(): void {
       secrets.saveDeviceToken(token)
     },
     clearToken: () => secrets.removeDeviceToken(),
-    appVersion: () => app.getVersion()
+    appVersion: () => app.getVersion(),
+    authMode: () => {
+      const s = settingsStore.load()
+      return googleAuth.isConfigured() && s.authMethod === 'google' ? 'google' : 'anonymous'
+    },
+    getGoogleIdToken: (signal) => googleAuth.getIdToken(signal)
   })
 
   // --- Update feed ------------------------------------------------------------
@@ -240,7 +353,8 @@ function bootstrap(): void {
     joinPath: (...parts) => path.join(...parts),
     fs: {
       createWriteStream: (p) => fs.createWriteStream(p),
-      unlink: (p) => fs.unlinkSync(p)
+      unlink: (p) => fs.unlinkSync(p),
+      exists: (p) => fs.existsSync(p)
     },
     spawn: (file, args) => spawn(file, args, { detached: true, stdio: 'ignore' }),
     onState: (phase) => {
@@ -584,6 +698,13 @@ function bootstrap(): void {
     if (patch.accessMode === 'hosted' && !hostedClient.isAvailable()) {
       throw invalid('Hosted mode', new Error('this build has no relay URL configured'))
     }
+    // Privileged fields only change through the dedicated hosted:* IPCs below —
+    // a renderer settings patch (untrusted) can never self-onboard or fake an
+    // account state.
+    delete (patch as Partial<AppSettings>).onboarded
+    delete (patch as Partial<AppSettings>).authMethod
+    delete (patch as Partial<AppSettings>).authEmail
+    delete (patch as Partial<AppSettings>).nudgeDismissed
     const before = settingsStore.load()
     const next = settingsStore.update(patch)
 
@@ -635,6 +756,54 @@ function bootstrap(): void {
   })
 
   ipcMain.handle('hosted:quota', () => chatService.refreshQuota())
+
+  // --- Onboarding + account identity (renderer is untrusted) -----------------
+  // These are the ONLY paths that may change onboarded/authMethod/authEmail —
+  // renderer settings patches are stripped of those fields in settings:save.
+  ipcMain.handle('hosted:auth-google', async (): Promise<GoogleSignInResult> => {
+    if (!hostedClient.isAvailable()) {
+      return { ok: false, message: 'This build has no hosted service configured.' }
+    }
+    if (!googleAuth.isConfigured()) {
+      return { ok: false, message: 'Google sign-in is not available in this build.' }
+    }
+    try {
+      const { email, persisted } = await googleAuth.signIn()
+      settingsStore.update({ authMethod: 'google', authEmail: email ?? '', onboarded: true })
+      // The account token replaces any device token: drop the old identity so
+      // the next hosted call registers under the account.
+      hostedClient.resetAuth()
+      void chatService.refreshQuota()
+      pushSettingsToAssistant()
+      return { ok: true, email: email ?? undefined, persisted }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Google sign-in failed.'
+      logger.warn(`google sign-in failed: ${message}`)
+      return { ok: false, message }
+    }
+  })
+
+  ipcMain.handle('hosted:auth-signout', () => {
+    settingsStore.update({ authMethod: 'anonymous', authEmail: '' })
+    googleAuth.clear()
+    secrets.removeGoogleRefreshToken()
+    hostedClient.resetAuth()
+    void chatService.refreshQuota()
+    pushSettingsToAssistant()
+    return { ok: true }
+  })
+
+  ipcMain.handle('hosted:onboard-byok', () => {
+    settingsStore.update({ onboarded: true, accessMode: 'byok' })
+    pushSettingsToAssistant()
+    return { ok: true }
+  })
+
+  ipcMain.handle('hosted:dismiss-nudge', () => {
+    settingsStore.update({ nudgeDismissed: true })
+    pushSettingsToAssistant()
+    return { ok: true }
+  })
 
   ipcMain.handle('chat:send', (event, payload): SendMessageResult => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -800,7 +969,10 @@ function bootstrap(): void {
     const parent = assistantWindow ?? settingsWindow ?? null
     const choice = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
     if (choice.response !== 0) return { ok: false }
-    updateService.install()
+    if (!updateService.install()) {
+      // The verified installer vanished (e.g. temp cleaner); do not quit.
+      return { ok: false, message: 'The installer could not be launched. Check for updates and download it again.' }
+    }
     // The NSIS installer replaces the running exe; give it a beat to take over.
     setTimeout(() => app.quit(), 500)
     return { ok: true }
@@ -851,7 +1023,9 @@ function bootstrap(): void {
     // Auto-check for updates: once shortly after launch, then every 6 hours.
     // Skipped in every test harness so runs are deterministic and never touch
     // the production feed; the E2E drives the check explicitly via the UI.
-    if (!E2E_TEST && !SMOKE_TEST && !INTEGRATION_TEST && !PERSISTENCE_PHASE && settingsStore.load().updatesEnabled) {
+    // Timers are created unconditionally so enabling the toggle mid-session
+    // takes effect immediately; each tick re-reads the setting.
+    if (!E2E_TEST && !SMOKE_TEST && !INTEGRATION_TEST && !PERSISTENCE_PHASE) {
       const autoCheck = (): void => {
         if (settingsStore.load().updatesEnabled) void updateService.check()
       }
@@ -877,7 +1051,11 @@ function bootstrap(): void {
           captureShortcuts,
           secrets,
           relay: e2eRelay ?? undefined,
-          backdropRefreshCount: () => backdropRefreshCount
+          backdropRefreshCount: () => backdropRefreshCount,
+          setOnboarded: (value: boolean) => {
+            settingsStore.update({ onboarded: value })
+            pushSettingsToAssistant()
+          }
         },
         e2eSurveillance
       )

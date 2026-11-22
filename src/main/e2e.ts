@@ -39,6 +39,8 @@ export interface E2eHooks {
   relay?: E2eRelayHandle
   /** Number of frost captures actually delivered to a renderer. */
   backdropRefreshCount(): number
+  /** E2E-only: flip the onboarding gate without touching settings files. */
+  setOnboarded?(value: boolean): void
 }
 
 export interface E2eSurveillance {
@@ -769,7 +771,18 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
       })()`)
       record(
         'appearance.tintRestored',
-        await waitUntil('tint restored to default', async () => (await tintVar()) === '50', 3000),
+        await waitUntil(
+          'tint restored to default',
+          async () => {
+            if ((await tintVar()) !== '50') return false
+            // The restore must be persisted, not just a CSS-var snapshot.
+            const persisted = (await settings.webContents.executeJavaScript(
+              'window.scout.settings.get().then((s) => s.glassTint)'
+            )) as unknown
+            return persisted === 50
+          },
+          3000
+        ),
         await tintVar()
       )
 
@@ -892,6 +905,63 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
           (await transcript()).slice(0, 300)
         )
         hooks.relay.setQuotaExceeded(false)
+
+        // ---- 8c. Hosted nudge + onboarding gate (mock Google flow) -----------
+        record(
+          'hosted.nudgeShown',
+          await waitUntil('nudge banner', () => mounted(assistant, '.nudge-banner'), 5000)
+        )
+        if (await mounted(assistant, '.nudge-banner')) {
+          await assistant.webContents.executeJavaScript(clickJs('.nudge-actions button:nth-child(2)'))
+          record(
+            'hosted.nudgeDismissed',
+            await waitUntil('nudge gone', async () => !(await mounted(assistant, '.nudge-banner')), 4000)
+          )
+        }
+        if (hooks.setOnboarded) {
+          hooks.setOnboarded(false)
+          record(
+            'onboard.overlayShown',
+            await waitUntil('onboarding overlay', () => mounted(assistant, '.onboard-overlay'), 5000)
+          )
+          // First card = Google sign-in; openExternal/token fetch are faked in main.
+          await assistant.webContents.executeJavaScript(clickJs('.onboard-option'))
+          record(
+            'onboard.overlayCleared',
+            await waitUntil('overlay gone after sign-in', async () => !(await mounted(assistant, '.onboard-overlay')), 15000)
+          )
+          record(
+            'onboard.googleMode',
+            await waitUntil('authMethod google', async () => {
+              try {
+                return (
+                  (await assistant.webContents.executeJavaScript(
+                    'window.scout.settings.get().then((s) => s.authMethod)'
+                  )) === 'google'
+                )
+              } catch {
+                return false
+              }
+            }, 8000)
+          )
+          // The account path still answers through the mock relay. The check
+          // needs a SECOND 'The answer is 42.' (8b produced one) AND a settled
+          // stream — matching the stale first answer would Clear mid-stream.
+          await assistant.webContents.executeJavaScript(findByTextJs('Clear'))
+          await assistant.webContents.executeJavaScript(TYPE_JS('.composer-input', 'account answer?'))
+          await assistant.webContents.executeJavaScript(clickJs('.composer-send'))
+          record(
+            'onboard.accountChatWorks',
+            (await waitUntil('account answer', async () => {
+              const text = await transcript()
+              return (text.match(/The answer is 42\./g) ?? []).length >= 2
+            }, 8000)) &&
+              (await waitUntil('stream settled', async () => !(await mounted(assistant, '.thinking')), 8000))
+          )
+          await sleep(300) // let the completed event land before Clearing
+          await assistant.webContents.executeJavaScript(findByTextJs('Clear'))
+          hooks.setOnboarded(true) // restore for any later checks; authMethod stays google
+        }
 
         // Back to BYOK so the remaining sections keep their original setup.
         await assistant.webContents.executeJavaScript(

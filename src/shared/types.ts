@@ -51,6 +51,36 @@ export interface HostedQuota {
   windowResetAt: number
 }
 
+/** Usage for a Google account (separate screenshot / text-question pools). */
+export interface HostedAccountQuota {
+  imagesUsed: number
+  imagesLimit: number
+  imagesRemaining: number
+  chatsUsed: number
+  chatsLimit: number
+  chatsRemaining: number
+  dayResetAt: number
+}
+
+/**
+ * Either usage shape the relay reports, keyed by how the session is
+ * authenticated: a random device token or a Google-account token.
+ */
+export type HostedQuotaInfo =
+  | { kind: 'device'; quota: HostedQuota }
+  | { kind: 'account'; quota: HostedAccountQuota }
+
+/** Outcome of the interactive Google sign-in flow (renderer-facing). */
+export interface GoogleSignInResult {
+  ok: boolean
+  /** Account email for display; present on success when Google disclosed it. */
+  email?: string
+  /** False when secure storage is unavailable: the session won't survive a restart. */
+  persisted?: boolean
+  /** User-readable failure reason; present on failure. */
+  message?: string
+}
+
 /** Non-secret application settings. The API key is never included here. */
 export interface AppSettings {
   /** Vision-capable NVIDIA NIM model id, e.g. meta/llama-3.2-90b-vision-instruct */
@@ -86,6 +116,18 @@ export interface AppSettings {
   updatesEnabled: boolean
   /** Configurable cap on encoded image payload size (bytes of the data URL). */
   maxImageBytes: number
+  /**
+   * First-run onboarding finished (Google sign-in OR own API key chosen).
+   * Until this is true the assistant shows the onboarding overlay and the
+   * main-process chat path refuses hosted requests.
+   */
+  onboarded: boolean
+  /** How the hosted free tier is tied to this install: random device or Google account. */
+  authMethod: 'anonymous' | 'google'
+  /** Google account email for display only (decoded from the id token, never sent anywhere). */
+  authEmail: string
+  /** The existing-user "sign in with Google" banner was dismissed. */
+  nudgeDismissed: boolean
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB of encoded image data
@@ -98,7 +140,7 @@ export interface PublicSettings extends AppSettings {
   /** True when this build was compiled with a hosted relay URL. */
   hostedAvailable: boolean
   /** Last known free-tier usage (null until the relay is contacted). */
-  hostedQuota: HostedQuota | null
+  hostedQuota: HostedQuotaInfo | null
   /** Short status describing the global shortcut registration. */
   shortcutStatus: 'registered' | 'failed'
   shortcutError?: string
