@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="310" viewBox="0 0 1080 310" role="img" aria-label="Screen Scout request flow">
+  <title>How a question flows</title>
+  <desc>Diagram: the app sends screenshot questions through the relay to Cloudflare Workers AI, text-only questions to Groq, or — in bring-your-own-key mode — straight to NVIDIA.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#30d158"/>
+    </marker>
+    <marker id="arrowgray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d6f88"/>
+    </marker>
+  </defs>
+
+  <g font-family="Segoe UI, system-ui, sans-serif">
+    <!-- app box -->
+    <rect x="20" y="105" width="230" height="96" rx="14" fill="#101a2e" stroke="#2a3b57"/>
+    <text x="135" y="145" text-anchor="middle" font-size="20" font-weight="700" fill="#e8f1fa">Screen Scout</text>
+    <text x="135" y="170" text-anchor="middle" font-size="14" fill="#9fb3c8">Windows app (Electron)</text>
+
+    <!-- relay box -->
+    <rect x="400" y="105" width="260" height="96" rx="14" fill="#101a2e" stroke="#30d158" stroke-opacity="0.65"/>
+    <text x="530" y="139" text-anchor="middle" font-size="20" font-weight="700" fill="#e8f1fa">Relay Worker</text>
+    <text x="530" y="161" text-anchor="middle" font-size="14" fill="#9fb3c8">Cloudflare · fair-use quotas</text>
+    <text x="530" y="183" text-anchor="middle" font-size="12.5" fill="#7a8ca6">stores ids + counters only</text>
+
+    <!-- groq box -->
+    <rect x="810" y="30" width="250" height="76" rx="14" fill="#101a2e" stroke="#2a3b57"/>
+    <text x="935" y="62" text-anchor="middle" font-size="18" font-weight="700" fill="#e8f1fa">Groq · GPT-OSS 120B</text>
+    <text x="935" y="86" text-anchor="middle" font-size="14" fill="#9fb3c8">text-only questions</text>
+
+    <!-- cf box -->
+    <rect x="810" y="200" width="250" height="76" rx="14" fill="#101a2e" stroke="#2a3b57"/>
+    <text x="935" y="232" text-anchor="middle" font-size="18" font-weight="700" fill="#e8f1fa">Workers AI · Llama 4 Scout</text>
+    <text x="935" y="256" text-anchor="middle" font-size="14" fill="#9fb3c8">screenshot questions</text>
+
+    <!-- arrows -->
+    <line x1="250" y1="140" x2="394" y2="140" stroke="#30d158" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="322" y="126" text-anchor="middle" font-size="13" fill="#8fa2ba">HTTPS / SSE</text>
+
+    <line x1="660" y1="130" x2="804" y2="75" stroke="#30d158" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="742" y="86" text-anchor="middle" font-size="13" fill="#8fa2ba">text</text>
+
+    <line x1="660" y1="175" x2="804" y2="230" stroke="#30d158" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="742" y="222" text-anchor="middle" font-size="13" fill="#8fa2ba">screenshot</text>
+
+    <!-- byok path -->
+    <path d="M 135 201 C 135 268 300 268 480 268" fill="none" stroke="#5d6f88" stroke-width="2" stroke-dasharray="6 6" marker-end="url(#arrowgray)"/>
+    <rect x="500" y="246" width="220" height="44" rx="12" fill="#0c1424" stroke="#2a3b57"/>
+    <text x="610" y="266" text-anchor="middle" font-size="15" font-weight="600" fill="#cfe0f0">Your NVIDIA NIM key</text>
+    <text x="610" y="283" text-anchor="middle" font-size="12" fill="#7a8ca6">BYOK: direct, relay bypassed</text>
+
+    <!-- caption -->
+    <text x="20" y="36" font-size="16" font-weight="700" fill="#e8f1fa">Hosted mode</text>
+    <text x="150" y="36" font-size="13" fill="#8fa2ba">— the relay holds the upstream credentials; no key ships in the app</text>
+  </g>
+</svg>

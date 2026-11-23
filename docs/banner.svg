@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="Screen Scout — ask your screen anything">
+  <title>Screen Scout</title>
+  <desc>Banner: Screen Scout, a Windows tray assistant that answers questions about anything on your screen.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c1424"/>
+      <stop offset="1" stop-color="#132038"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#30d158"/>
+      <stop offset="1" stop-color="#4ae3b5"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#30d158" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#30d158" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3a7bd5" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#3a7bd5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="298" rx="22" fill="url(#bg)"/>
+  <rect x="1" y="1" width="1198" height="298" rx="22" fill="none" stroke="#2a3b57" stroke-width="1"/>
+
+  <circle cx="1080" cy="40" r="220" fill="url(#glow1)"/>
+  <circle cx="150" cy="280" r="200" fill="url(#glow2)"/>
+
+  <!-- app icon: rounded tile + magnifier over a tiny screen -->
+  <g transform="translate(76,96)">
+    <rect x="0" y="0" width="108" height="108" rx="24" fill="url(#accent)"/>
+    <rect x="18" y="16" width="60" height="44" rx="7" fill="#0c1424" opacity="0.28"/>
+    <circle cx="45" cy="42" r="17" fill="none" stroke="#ffffff" stroke-width="6"/>
+    <line x1="57" y1="55" x2="72" y2="70" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+    <rect x="20" y="72" width="52" height="12" rx="6" fill="#0c1424" opacity="0.35"/>
+  </g>
+
+  <text x="226" y="152" font-family="Segoe UI, system-ui, sans-serif" font-size="58" font-weight="700" fill="#f2f7fc" letter-spacing="-1">Screen Scout</text>
+  <text x="230" y="196" font-family="Segoe UI, system-ui, sans-serif" font-size="23" fill="#9fb3c8">Ask your screen anything — press Shift+R, circle a region, get an answer.</text>
+
+  <!-- feature chips -->
+  <g font-family="Segoe UI, system-ui, sans-serif" font-size="16" fill="#cfe0f0">
+    <rect x="230" y="224" width="168" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+    <text x="314" y="246" text-anchor="middle">Free hosted tier</text>
+
+    <rect x="412" y="224" width="188" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+    <text x="506" y="246" text-anchor="middle">Bring your own key</text>
+
+    <rect x="614" y="224" width="190" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+    <text x="709" y="246" text-anchor="middle">Local redaction</text>
+
+    <rect x="818" y="224" width="152" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16"/>
+    <text x="894" y="246" text-anchor="middle">Windows 10/11</text>
+  </g>
+</svg>
