@@ -33,6 +33,10 @@ The installer is unsigned, so Windows SmartScreen may warn on first launch — c
 - App windows are excluded from screen capture at the OS level, so Zoom/Teams shares and other screenshot tools see only your desktop.
 - Frosted-glass UI: the desktop behind the popup is captured just before the window shows and blurred in-page, and re-captured as you move or resize.
 
+## A quick look
+
+<img src="docs/preview.svg" alt="Region selection on the left, the assistant popup with an answer on the right" width="100%" />
+
 ## How it works
 
 <img src="docs/flow.svg" alt="Question flow: app → relay → Groq / Workers AI, or BYOK → NVIDIA" width="100%" />
@@ -40,6 +44,18 @@ The installer is unsigned, so Windows SmartScreen may warn on first launch — c
 1. Capture: the screen dims, you drag a rectangle, the crop appears as a preview (Redact / Retake / Remove).
 2. Ask: type a question or pick one of the quick prompts. Follow-ups keep the image in context.
 3. Answer: streamed in with Markdown rendering. Copy it, stop it, or start a new chat anytime.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Shift+R` | Show or hide the assistant |
+| `Shift+C` | Jump straight to region selection; the popup opens with the crop attached |
+| `Shift+S` | Peek: hide without clearing the session — reopen exactly where you left off |
+| `Esc` | Cancel a selection / redaction, dismiss a notice, or close the popup |
+| `Ctrl+V` | Paste an image from the clipboard as the attachment |
+
+Both global shortcuts are re-recordable in Settings (the capture shortcut can be disabled).
 
 ---
 
@@ -276,6 +292,10 @@ tests/                   # vitest: NIM client, SSE parser, relay auth/quota/SSE,
 </details>
 
 ---
+
+## Feedback
+
+Found a bug, a shortcut conflict, or a capture edge case? [Open an issue](https://github.com/flames-09/screen-scout/issues) — the Troubleshooting section above covers the most common ones first.
 
 ## License
 

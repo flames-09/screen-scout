@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="470" viewBox="0 0 1120 470" font-family="'Segoe UI',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c1424"/>
+      <stop offset="1" stop-color="#101c33"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#30d158"/>
+      <stop offset="1" stop-color="#4bc8ff"/>
+    </linearGradient>
+    <linearGradient id="deskA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2b47"/>
+      <stop offset="1" stop-color="#22375c"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1120" height="470" rx="18" fill="url(#canvas)"/>
+  <rect x="0.5" y="0.5" width="1119" height="469" rx="18" fill="none" stroke="#26314a"/>
+
+  <!-- ============ panel 1: region selection ============ -->
+  <text x="52" y="46" fill="#8fa3c8" font-size="13" letter-spacing="2">SELECT</text>
+
+  <g>
+    <rect x="52" y="66" width="490" height="330" rx="14" fill="#0a101d" stroke="#26314a"/>
+    <!-- pretend desktop behind the dim -->
+    <rect x="76" y="92" width="330" height="200" rx="8" fill="url(#deskA)"/>
+    <rect x="88" y="104" width="200" height="10" rx="5" fill="#31456b"/>
+    <rect x="88" y="124" width="306" height="8" rx="4" fill="#28395c"/>
+    <rect x="88" y="140" width="280" height="8" rx="4" fill="#28395c"/>
+    <rect x="88" y="156" width="296" height="8" rx="4" fill="#28395c"/>
+    <rect x="88" y="182" width="150" height="70" rx="6" fill="#2b3f66"/>
+    <rect x="250" y="182" width="144" height="70" rx="6" fill="#2b3f66"/>
+    <rect x="430" y="110" width="88" height="240" rx="8" fill="#1a2740" stroke="#26314a"/>
+    <!-- the dim -->
+    <rect x="52" y="66" width="490" height="330" rx="14" fill="#050a14" opacity="0.55"/>
+    <!-- selection rectangle -->
+    <rect x="150" y="150" width="290" height="160" rx="6" fill="#30d158" opacity="0.06"/>
+    <rect x="150.5" y="150.5" width="289" height="159" rx="6" fill="none" stroke="#30d158" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <rect x="150" y="128" width="78" height="18" rx="9" fill="#30d158"/>
+    <text x="189" y="141" text-anchor="middle" fill="#06280f" font-size="11" font-weight="600">780 × 412</text>
+    <text x="297" y="376" text-anchor="middle" fill="#66799c" font-size="12">drag a rectangle · live dimensions · Esc cancels</text>
+  </g>
+
+  <!-- arrow between panels -->
+  <path d="M 562 231 L 586 231" stroke="url(#accent)" stroke-width="2"/>
+  <path d="M 586 231 L 578 226 L 578 236 Z" fill="#30d158"/>
+
+  <!-- ============ panel 2: the assistant popup ============ -->
+  <text x="616" y="46" fill="#8fa3c8" font-size="13" letter-spacing="2">ASK</text>
+
+  <g>
+    <rect x="616" y="66" width="452" height="330" rx="16" fill="#101b30" stroke="#2a3854"/>
+    <!-- header -->
+    <circle cx="640" cy="92" r="4.5" fill="#30d158"/>
+    <text x="652" y="97" fill="#e8eefc" font-size="13" font-weight="600">Screen Scout</text>
+    <rect x="838" y="81" width="212" height="22" rx="11" fill="#12331d"/>
+    <text x="944" y="96" text-anchor="middle" fill="#7ce49a" font-size="11">Llama 4 Scout on Cloudflare</text>
+    <line x1="616" y1="114" x2="1068" y2="114" stroke="#22304e"/>
+
+    <!-- user bubble -->
+    <rect x="866" y="128" width="186" height="34" rx="12" fill="#233356"/>
+    <text x="959" y="149" text-anchor="middle" fill="#dfe8fa" font-size="12">Why is this request failing?</text>
+
+    <!-- assistant bubble -->
+    <rect x="632" y="176" width="368" height="96" rx="12" fill="#18243c"/>
+    <text x="648" y="200" fill="#cdd9ef" font-size="12">The call times out before the first byte —</text>
+    <text x="648" y="220" fill="#cdd9ef" font-size="12">the host resets the connection. Raise</text>
+    <rect x="648" y="234" width="86" height="20" rx="5" fill="#0d1628"/>
+    <text x="691" y="248" text-anchor="middle" fill="#8fd3ff" font-size="11">timeoutMs</text>
+    <text x="742" y="248" fill="#cdd9ef" font-size="12">in the client config.</text>
+
+    <!-- attachment strip -->
+    <rect x="632" y="286" width="44" height="34" rx="7" fill="url(#deskA)" stroke="#2a3854"/>
+    <text x="688" y="307" fill="#66799c" font-size="11">Redact · Retake · Remove</text>
+
+    <!-- composer -->
+    <rect x="632" y="334" width="356" height="40" rx="12" fill="#0d1628" stroke="#26314a"/>
+    <text x="648" y="358" fill="#5d6f92" font-size="12">Ask a follow-up…</text>
+    <circle cx="962" cy="354" r="12" fill="#30d158"/>
+    <path d="M 957 354 L 968 354 M 963 349 L 968 354 L 963 359" stroke="#06280f" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <text x="560" y="440" text-anchor="middle" fill="#5d6f92" font-size="12">Shift+R opens the popup anywhere · Shift+C jumps straight to a capture</text>
+</svg>
