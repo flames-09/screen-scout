@@ -42,7 +42,9 @@ interface PendingPrompt {
  */
 const MODEL_PRETTY: Record<string, string> = {
   'scout-vision-1': 'Llama 4 Scout',
-  'meta/llama-3.2-90b-vision-instruct': 'Llama 3.2 90B'
+  'meta/llama-3.2-90b-vision-instruct': 'Llama 3.2 90B',
+  'openai/gpt-oss-120b': 'GPT-OSS 120B',
+  'openai/gpt-oss-20b': 'GPT-OSS 20B'
 }
 
 function servedModelLabel(model: string | null, provider: string | null): string | null {
@@ -62,7 +64,7 @@ function servedModelLabel(model: string | null, provider: string | null): string
         ? model.split('/')[1]
         : model
       : ''
-  if (pretty && host) return `${pretty} · ${host}`
+  if (pretty && host) return `${pretty} on ${host}`
   return pretty || host
 }
 
