@@ -3,9 +3,17 @@
 A lightweight Windows desktop AI assistant that lives in your system tray.
 Press **Shift+R** from anywhere, drag a rectangle around any part of your
 screen, ask a question, and a vision-capable AI model answers — either through
-the free **hosted tier** (no key, no account; routed via Screen Scout's relay)
-or **your own NVIDIA NIM key** in BYOK mode, where requests go directly to
-NVIDIA and nowhere else.
+the free **hosted tier** (no key; optional Google sign-in; routed via Screen
+Scout's relay) or **your own NVIDIA NIM key** in BYOK mode, where requests go
+directly to NVIDIA and nowhere else.
+
+## Download & install
+
+1. Grab the latest installer from **[Releases](https://github.com/flames-09/screen-scout/releases/latest)** and run `Screen-Scout-0.1.0-setup.exe`.
+2. Press **Shift+R** anywhere to open the assistant.
+3. First run: choose the **free hosted service** (optional Google sign-in) or **use your own API key**.
+
+> The installer is unsigned — Windows SmartScreen may warn. Choose **More info → Run anyway**.
 
 - **Background-first** — starts quietly in the tray; no window opens at launch.
 - **Select → Ask → Answer** — capture a region, preview it, then choose to send.
@@ -18,11 +26,13 @@ NVIDIA and nowhere else.
   machine.
 - **Nothing is uploaded until you press Send.** Closing the popup discards the
   unsent capture.
-- **Free hosted mode** — no account, no key. Questions are relayed through
-  Screen Scout's Cloudflare Worker under fair-use quotas; screenshot questions
-  are served by Cloudflare Workers AI (Llama 4 Scout), text-only turns by Groq
-  (GPT-OSS 120B). The relay stores no screenshots, prompts, or answers — only
-  a random device id and usage counters.
+- **Free hosted mode** — no key needed; optional Google sign-in for a bigger
+  daily allowance (5 screenshots + 50 chats/day signed in, vs 30 questions/day
+  anonymous). Questions are relayed through Screen Scout's Cloudflare Worker
+  under fair-use quotas; screenshot questions are served by Cloudflare Workers
+  AI (Llama 4 Scout), text-only turns by Groq (GPT-OSS 120B). The relay stores
+  no screenshots, prompts, or answers — only a random device id (or a keyed
+  account hash if you sign in) and usage counters.
 - **Your own NVIDIA key**, stored with OS-backed encryption (Windows DPAPI),
   never in the renderer, logs, or plaintext config.
 - **Premium glass UI** — Apple-inspired frosted vibrancy, system-green accent,
