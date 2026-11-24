@@ -1,0 +1,46 @@
+name: Bug report
+description: Something broke or behaves unexpectedly
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Press Shift+R
+        2. Select a region
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Which build are you running?
+      options:
+        - Installer from a GitHub release
+        - Built from source (npm run dev)
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Access mode
+      options:
+        - Free hosted mode (no key)
+        - Free hosted mode + Google sign-in
+        - My own NVIDIA key
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Windows version, monitor setup, or the exact error text if you saw one. Please redact anything private.

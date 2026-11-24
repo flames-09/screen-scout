@@ -5,12 +5,22 @@
 
 [![Download](https://img.shields.io/github/v/release/flames-09/screen-scout?sort=semver&label=download&color=30d158&logo=github)](https://github.com/flames-09/screen-scout/releases/latest)
 [![CI](https://github.com/flames-09/screen-scout/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flames-09/screen-scout/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/flames-09/screen-scout?logo=github&color=f5c518&label=stars)](https://github.com/flames-09/screen-scout/stargazers)
+[![Issues](https://img.shields.io/github/issues/flames-09/screen-scout?logo=github&color=ff6b6b&label=open%20issues)](https://github.com/flames-09/screen-scout/issues)
+[![License](https://img.shields.io/badge/license-proprietary-98989d?logo=github)](LICENSE)
+[![Platform](https://img.shields.io/badge/Windows-10%20%2F%2011-0078d4?logo=windows&logoColor=white)](#install)
+
+<br>
+
+[![Download installer](https://img.shields.io/badge/Download%20installer-30d158?logo=github&logoColor=white)](https://github.com/flames-09/screen-scout/releases/latest)
+[![Report a bug](https://img.shields.io/badge/Report%20a%20bug-ff453a?logo=github&logoColor=white)](https://github.com/flames-09/screen-scout/issues/new?template=bug.yml)
+[![Request a feature](https://img.shields.io/badge/Request%20a%20feature-bf5af2?logo=github&logoColor=white)](https://github.com/flames-09/screen-scout/issues/new?template=feature_request.yml)
+[![Discussions](https://img.shields.io/badge/Ask%20a%20question-5ac8fa?logo=github&logoColor=white)](https://github.com/flames-09/screen-scout/discussions)
+[![Star the repo](https://img.shields.io/badge/Star%20the%20repo-f5c518?logo=github&logoColor=white)](https://github.com/flames-09/screen-scout/stargazers)
 
 </div>
 
 A Windows tray assistant for asking questions about what's on your screen: select a region, type a question, get an answer. It runs either on the free hosted tier (no key required, optional Google sign-in) or with your own NVIDIA NIM key — switchable in settings at any time.
-
-Links: [Download](https://github.com/flames-09/screen-scout/releases/latest) · [Hosted-tier privacy notice](https://screen-scout-relay.flamesrise09.workers.dev/privacy) · [Relay source](relay/)
 
 ## Install
 
@@ -18,7 +28,11 @@ Links: [Download](https://github.com/flames-09/screen-scout/releases/latest) · 
 2. Press Shift+R anywhere — the assistant pops up.
 3. On first run, choose the free hosted service (optional Google sign-in) or add your own API key.
 
-The installer is unsigned, so Windows SmartScreen may warn on first launch — choose *More info → Run anyway*.
+> [!TIP]
+> First thing to try: press Shift+R, select any region, and ask what's on screen. Hosted mode needs no key and no account.
+
+> [!WARNING]
+> The installer is unsigned, so Windows SmartScreen may warn on first launch — choose *More info → Run anyway*.
 
 ## What it does
 
@@ -72,6 +86,9 @@ Questions are relayed through Screen Scout's Cloudflare Worker, which holds the 
 - The relay stores no screenshots, prompts, or answers — only a random device id (or a keyed account hash if you sign in), usage counters, and which provider served the request. Counters are pruned after at most 7 days.
 - Limits live in [`relay/wrangler.toml`](relay/wrangler.toml). Hosted mode is fair-use, not a paid API — BYOK users keep their own NVIDIA limits.
 - Self-hosting: bake your deployed URL at build time with `node scripts/set-relay-url.mjs https://your-worker.workers.dev` then `npm run build`. Without a baked URL the app stays in BYOK mode. `SCREEN_SCOUT_RELAY_URL` overrides the baked URL at runtime.
+
+> [!IMPORTANT]
+> Hosted mode is fair-use, not a paid API — there is no availability guarantee, and the relay stores no screenshots, prompts, or answers. Full details: [hosted privacy notice](https://screen-scout-relay.flamesrise09.workers.dev/privacy). The relay's source ships in [`relay/`](relay/).
 
 ---
 
@@ -295,7 +312,9 @@ tests/                   # vitest: NIM client, SSE parser, relay auth/quota/SSE,
 
 ## Feedback
 
-Found a bug, a shortcut conflict, or a capture edge case? [Open an issue](https://github.com/flames-09/screen-scout/issues) — the Troubleshooting section above covers the most common ones first.
+Found a bug, a shortcut conflict, or a capture edge case? [Open a bug report](https://github.com/flames-09/screen-scout/issues/new?template=bug.yml) — the Troubleshooting section above covers the most common ones first.
+
+Ideas for new models, workflows, or platform support? [Request a feature](https://github.com/flames-09/screen-scout/issues/new?template=feature_request.yml) or start a [discussion](https://github.com/flames-09/screen-scout/discussions) — feature requests and questions are both welcome there.
 
 ## License
 
