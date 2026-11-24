@@ -51,8 +51,12 @@
   <g>
     <rect x="616" y="66" width="452" height="330" rx="16" fill="#101b30" stroke="#2a3854"/>
     <!-- header -->
-    <circle cx="640" cy="92" r="4.5" fill="#30d158"/>
-    <text x="652" y="97" fill="#e8eefc" font-size="13" font-weight="600">Screen Scout</text>
+    <g transform="translate(634,80)">
+      <rect x="0" y="0" width="22" height="22" rx="5" fill="#101b2e"/>
+      <path d="M4 7.5 V4 h3.5 M14.5 4 H18 v3.5 M18 14.5 V18 h-3.5 M7.5 18 H4 v-3.5" stroke="#2fe387" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+      <text x="11" y="15.5" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#4ae3b5">S</text>
+    </g>
+    <text x="665" y="97" fill="#e8eefc" font-size="13" font-weight="600">Screen Scout</text>
     <rect x="838" y="81" width="212" height="22" rx="11" fill="#12331d"/>
     <text x="944" y="96" text-anchor="middle" fill="#7ce49a" font-size="11">Llama 4 Scout on Cloudflare</text>
     <line x1="616" y1="114" x2="1068" y2="114" stroke="#22304e"/>

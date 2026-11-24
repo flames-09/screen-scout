@@ -1,6 +1,9 @@
 ﻿import { BrowserWindow, screen } from 'electron'
 import * as path from 'node:path'
 
+/** App logo for dev-mode taskbar/window icons (packaged builds use the exe icon). */
+export const APP_ICON_PATH = path.join(__dirname, '../../assets/icon-512.png')
+
 /**
  * Window creation and lifecycle for Screen Scout.
  *
@@ -66,6 +69,7 @@ export function preloadPath(): string {
 export function createAssistantWindow(): BrowserWindow {
   const win = new BrowserWindow({
     ...ASSISTANT_SIZE,
+    icon: APP_ICON_PATH,
     minWidth: ASSISTANT_MIN.width,
     minHeight: ASSISTANT_MIN.height,
     maxWidth: ASSISTANT_MAX.width,
@@ -108,6 +112,7 @@ export function createAssistantWindow(): BrowserWindow {
 export function createSettingsWindow(): BrowserWindow {
   const win = new BrowserWindow({
     ...SETTINGS_SIZE,
+    icon: APP_ICON_PATH,
     minWidth: SETTINGS_SIZE.width,
     minHeight: 560,
     maxWidth: SETTINGS_SIZE.width,
