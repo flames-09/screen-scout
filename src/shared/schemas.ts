@@ -47,6 +47,7 @@ export const settingsSchema = z.object({
   updatesEnabled: z.boolean().default(true),
   /** Glass tint strength 0-100 (50 = shipped default look). */
   glassTint: z.number().int().min(0).max(100).default(50),
+  zoom: z.number().min(0.7).max(1.6).default(1),
   maxImageBytes: z.number().int().min(256 * 1024).max(10 * 1024 * 1024).default(DEFAULT_MAX_IMAGE_BYTES),
   /**
    * First-run onboarding finished. Privileged: the renderer may NOT set this

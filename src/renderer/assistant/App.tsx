@@ -157,6 +157,16 @@ export function AssistantApp(): JSX.Element {
     })
   }, [flushDeltas])
 
+  // ---- Zoom (assistant popup content scale) -----------------------------------
+  // CSS zoom on the root scales all popup content without touching Electron
+  // APIs (the sandboxed renderer must not import 'electron'); the applied
+  // factor is mirrored on <html data-zoom> so the E2E harness can assert it.
+  useEffect(() => {
+    const zoom = settings?.zoom ?? 1
+    document.documentElement.style.zoom = String(zoom)
+    document.documentElement.dataset.zoom = String(zoom)
+  }, [settings?.zoom])
+
   // ---- Selection results (pushed for BOTH the button flow and the
   // direct-capture global shortcut) ---------------------------------------------
   useEffect(() => {

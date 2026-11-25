@@ -786,6 +786,78 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
         await tintVar()
       )
 
+      // Zoom: slider is in percent; the save persists a factor and the
+      // assistant applies it via webFrame, mirrored on <html data-zoom>.
+      await settings.webContents.executeJavaScript(`(() => {
+        const slider = document.querySelector('[data-testid="zoom-slider"]')
+        if (!slider) return false
+        slider.value = '125'
+        slider.dispatchEvent(new Event('input', { bubbles: true }))
+        slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+        return true
+      })()`)
+      record(
+        'appearance.zoomSaved',
+        await waitUntil(
+          'zoom persisted',
+          async () => {
+            const pub = (await settings.webContents.executeJavaScript(`window.scout.settings.get()`)) as {
+              zoom?: number
+            }
+            return pub.zoom === 1.25
+          },
+          4000
+        )
+      )
+      record(
+        'appearance.zoomApplied',
+        await waitUntil(
+          'assistant zoom applied',
+          async () =>
+            (await assistant.webContents.executeJavaScript(
+              'document.documentElement.dataset.zoom'
+            )) === '1.25',
+          4000
+        )
+      )
+      await settings.webContents.executeJavaScript(`(() => {
+        const slider = document.querySelector('[data-testid="zoom-slider"]')
+        slider.value = '100'
+        slider.dispatchEvent(new Event('input', { bubbles: true }))
+        slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+        return true
+      })()`)
+      record(
+        'appearance.zoomRestored',
+        await waitUntil(
+          'zoom restored to default',
+          async () => {
+            const zoomAttr = (await assistant.webContents.executeJavaScript(
+              'document.documentElement.dataset.zoom'
+            )) as unknown
+            const persisted = (await settings.webContents.executeJavaScript(
+              'window.scout.settings.get().then((s) => s.zoom)'
+            )) as unknown
+            return zoomAttr === '1' && persisted === 1
+          },
+          3000
+        )
+      )
+
+      // Clicking another app must never hide the popup (regression guard for
+      // the transparent-window blur bug: windows.ts forces a repaint on blur,
+      // and no blur handler may hide or untoggle the window).
+      assistant.blur()
+      record(
+        'blur.staysVisible',
+        await waitUntil(
+          'popup survives blur visible + topmost',
+          async () => assistant.isVisible() && assistant.isAlwaysOnTop(),
+          1500
+        )
+      )
+      assistant.focus()
+
       // Close settings via the X — the frost must drop from memory.
       record('settings.closeClicked', (await settings.webContents.executeJavaScript(clickJs('[aria-label="Close settings"]'))) === true)
       record(

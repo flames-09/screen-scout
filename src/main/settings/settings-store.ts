@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   noticeAcknowledged: false,
   updatesEnabled: true,
   glassTint: 50,
+  zoom: 1,
   maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
   // Fresh installs see the first-run onboarding (Google sign-in OR own key);
   // existing installs are marked onboarded by migrateOnboarding at startup.
@@ -119,6 +120,9 @@ export function sanitizeSettings(input: Record<string, unknown>): AppSettings {
   if (typeof input.updatesEnabled === 'boolean') out.updatesEnabled = input.updatesEnabled
   if (typeof input.glassTint === 'number' && Number.isFinite(input.glassTint)) {
     out.glassTint = Math.min(100, Math.max(0, Math.round(input.glassTint)))
+  }
+  if (typeof input.zoom === 'number' && Number.isFinite(input.zoom)) {
+    out.zoom = Math.min(1.6, Math.max(0.7, Math.round(input.zoom * 100) / 100))
   }
   if (
     typeof input.maxImageBytes === 'number' &&

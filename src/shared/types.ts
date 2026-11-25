@@ -112,6 +112,7 @@ export interface AppSettings {
   noticeAcknowledged: boolean
   /** Glass tint strength 0–100 (50 = shipped default look). */
   glassTint: number
+  zoom: number
   /** Check the relay's update feed automatically (periodic + at startup). */
   updatesEnabled: boolean
   /** Configurable cap on encoded image payload size (bytes of the data URL). */

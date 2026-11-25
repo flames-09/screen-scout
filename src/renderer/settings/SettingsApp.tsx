@@ -267,6 +267,7 @@ export function SettingsApp(): JSX.Element {
 
   /** Slider position while dragging (null = resting on the saved value). */
   const [tintDraft, setTintDraft] = useState<number | null>(null)
+  const [zoomDraft, setZoomDraft] = useState<number | null>(null)
 
   const saveTint = useCallback(
     async (value: number): Promise<void> => {
@@ -286,6 +287,20 @@ export function SettingsApp(): JSX.Element {
       }
     },
     [guard, settings?.glassTint]
+  )
+
+  const saveZoom = useCallback(
+    async (percent: number): Promise<void> => {
+      let committed = false
+      await guard(async () => {
+        const updated = await window.scout.settings.save({ zoom: Math.round(percent) / 100 })
+        setSettings(updated)
+        committed = true
+      })
+      setZoomDraft(null)
+      if (!committed) setZoomDraft(null)
+    },
+    [guard]
   )
 
   const toggleStartup = useCallback(async (): Promise<void> => {
@@ -819,6 +834,31 @@ export function SettingsApp(): JSX.Element {
             />
             <span className="slider-value" data-testid="tint-value">
               {tintDraft ?? (settings?.glassTint ?? 50)}
+            </span>
+          </div>
+
+          <label className="toggle-label" htmlFor="zoom-slider">
+            Assistant zoom
+            <span className="toggle-sub">How large the popup content renders.</span>
+          </label>
+          <div className="slider-line">
+            <input
+              id="zoom-slider"
+              type="range"
+              className="tint-slider"
+              data-testid="zoom-slider"
+              min={70}
+              max={160}
+              step={5}
+              value={zoomDraft ?? Math.round((settings?.zoom ?? 1) * 100)}
+              onInput={(e) => setZoomDraft(Number((e.target as HTMLInputElement).value))}
+              onPointerUp={(e) => void saveZoom(Number((e.target as HTMLInputElement).value))}
+              onPointerCancel={(e) => void saveZoom(Number((e.target as HTMLInputElement).value))}
+              onKeyUp={(e) => void saveZoom(Number((e.target as HTMLInputElement).value))}
+              disabled={!settings}
+            />
+            <span className="slider-value" data-testid="zoom-value">
+              {zoomDraft ?? Math.round((settings?.zoom ?? 1) * 100)}%
             </span>
           </div>
         </section>

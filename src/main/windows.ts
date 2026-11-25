@@ -106,6 +106,16 @@ export function createAssistantWindow(): BrowserWindow {
   win.on('show', () => {
     if (!win.isContentProtected()) win.setContentProtection(true)
   })
+  // Transparent (layered) windows on Windows can stop painting when another
+  // app takes focus: the window stays programmatically visible but vanishes
+  // from screen. Forcing the compositor to present a fresh frame on every
+  // blur fixes it; re-asserting the level defends against re-styling drops.
+  // This is NOT a hide-on-blur policy — the popup deliberately survives
+  // losing focus (Esc / the shortcut / the close button hide it).
+  win.on('blur', () => {
+    win.webContents.invalidate()
+    win.setAlwaysOnTop(true, 'floating')
+  })
   return win
 }
 
