@@ -24,7 +24,7 @@ A Windows tray assistant for asking questions about what's on your screen: selec
 
 ## Install
 
-1. Grab the latest installer from [Releases](https://github.com/flames-09/screen-scout/releases/latest) and run `Screen-Scout-0.1.0-setup.exe`.
+1. Grab the latest installer from [Releases](https://github.com/flames-09/screen-scout/releases/latest) and run the downloaded `Screen-Scout-…-setup.exe`.
 2. Press Shift+R anywhere — the assistant pops up.
 3. On first run, choose the free hosted service (optional Google sign-in) or add your own API key.
 
