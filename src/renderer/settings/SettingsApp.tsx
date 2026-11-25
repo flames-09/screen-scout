@@ -291,14 +291,11 @@ export function SettingsApp(): JSX.Element {
 
   const saveZoom = useCallback(
     async (percent: number): Promise<void> => {
-      let committed = false
       await guard(async () => {
         const updated = await window.scout.settings.save({ zoom: Math.round(percent) / 100 })
         setSettings(updated)
-        committed = true
       })
       setZoomDraft(null)
-      if (!committed) setZoomDraft(null)
     },
     [guard]
   )

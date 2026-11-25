@@ -103,11 +103,18 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ requestTimeoutSec: 45 }).requestTimeoutSec).toBe(45)
   })
 
-  it('clamps the glass tint into 0–100 and rounds', () => {
+  it('clamps the glass tint into 0—100 and rounds', () => {
     expect(sanitizeSettings({ glassTint: 140 }).glassTint).toBe(100)
     expect(sanitizeSettings({ glassTint: -5 }).glassTint).toBe(0)
     expect(sanitizeSettings({ glassTint: 51.7 }).glassTint).toBe(52)
     expect(sanitizeSettings({}).glassTint).toBe(50)
+  })
+
+  it('clamps the zoom into 0.7—1.6 and rounds to 2 decimals', () => {
+    expect(sanitizeSettings({ zoom: 5 }).zoom).toBe(1.6)
+    expect(sanitizeSettings({ zoom: 0.1 }).zoom).toBe(0.7)
+    expect(sanitizeSettings({ zoom: 1.234 }).zoom).toBe(1.23)
+    expect(sanitizeSettings({}).zoom).toBe(1)
   })
 
   it('never stores secrets: an apiKey field is ignored entirely', () => {

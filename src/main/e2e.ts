@@ -787,7 +787,7 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
       )
 
       // Zoom: slider is in percent; the save persists a factor and the
-      // assistant applies it via webFrame, mirrored on <html data-zoom>.
+      // assistant applies CSS zoom on documentElement, mirrored on <html data-zoom>.
       await settings.webContents.executeJavaScript(`(() => {
         const slider = document.querySelector('[data-testid="zoom-slider"]')
         if (!slider) return false
@@ -846,14 +846,22 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
 
       // Clicking another app must never hide the popup (regression guard for
       // the transparent-window blur bug: windows.ts forces a repaint on blur,
-      // and no blur handler may hide or untoggle the window).
+      // and no blur handler may hide or untoggle the window). Focus the popup
+      // first so blur() is real, then require an actual painted frame (a
+      // frozen compositor stops ticking requestAnimationFrame).
+      assistant.focus()
       assistant.blur()
       record(
         'blur.staysVisible',
         await waitUntil(
-          'popup survives blur visible + topmost',
-          async () => assistant.isVisible() && assistant.isAlwaysOnTop(),
-          1500
+          'popup survives blur visible + topmost + painting',
+          async () => {
+            if (!assistant.isVisible() || !assistant.isAlwaysOnTop()) return false
+            return (await assistant.webContents.executeJavaScript(
+              'new Promise((resolve) => { const id = requestAnimationFrame(() => resolve(true)); setTimeout(() => resolve(false), 900) })'
+            )) === true
+          },
+          2500
         )
       )
       assistant.focus()

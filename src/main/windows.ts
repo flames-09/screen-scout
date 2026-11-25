@@ -66,6 +66,24 @@ export function preloadPath(): string {
   return path.join(__dirname, '../preload/index.js')
 }
 
+/**
+ * Transparent (layered) windows on Windows can stop painting when another
+ * app takes focus: the window stays programmatically visible but vanishes
+ * from screen. Forcing the compositor to present a fresh frame on every
+ * blur fixes it; re-asserting the level defends against re-styling drops,
+ * and the same re-styling can reset display affinity, so content protection
+ * is re-asserted with the same idempotent guard the 'show' handler uses.
+ * This is NOT a hide-on-blur policy — these windows deliberately survive
+ * losing focus (Esc / the shortcut / the close button hide them).
+ */
+export function attachTransparentWindowBlurGuard(win: BrowserWindow): void {
+  win.on('blur', () => {
+    win.webContents.invalidate()
+    win.setAlwaysOnTop(true, 'floating')
+    if (!win.isContentProtected()) win.setContentProtection(true)
+  })
+}
+
 export function createAssistantWindow(): BrowserWindow {
   const win = new BrowserWindow({
     ...ASSISTANT_SIZE,
@@ -106,16 +124,7 @@ export function createAssistantWindow(): BrowserWindow {
   win.on('show', () => {
     if (!win.isContentProtected()) win.setContentProtection(true)
   })
-  // Transparent (layered) windows on Windows can stop painting when another
-  // app takes focus: the window stays programmatically visible but vanishes
-  // from screen. Forcing the compositor to present a fresh frame on every
-  // blur fixes it; re-asserting the level defends against re-styling drops.
-  // This is NOT a hide-on-blur policy — the popup deliberately survives
-  // losing focus (Esc / the shortcut / the close button hide it).
-  win.on('blur', () => {
-    win.webContents.invalidate()
-    win.setAlwaysOnTop(true, 'floating')
-  })
+  attachTransparentWindowBlurGuard(win)
   return win
 }
 
@@ -148,6 +157,7 @@ export function createSettingsWindow(): BrowserWindow {
   win.on('show', () => {
     if (!win.isContentProtected()) win.setContentProtection(true)
   })
+  attachTransparentWindowBlurGuard(win)
 
   return win
 }
@@ -190,6 +200,7 @@ export function createOverlayWindow(spec: OverlaySpec): BrowserWindow {
   win.on('show', () => {
     if (!win.isContentProtected()) win.setContentProtection(true)
   })
+  attachTransparentWindowBlurGuard(win)
 
   return win
 }

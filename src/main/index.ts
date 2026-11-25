@@ -872,12 +872,15 @@ function bootstrap(): void {
     if (!parsed.success) throw invalid('Invalid resize', formatZodError(parsed.error))
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win !== assistantWindow) return { ok: false }
+    // The grip reports deltas in CSS px; under assistant CSS zoom 1 CSS px is
+    // `zoom` window DIPs. Scale so the window tracks the cursor 1:1.
+    const zoom = settingsStore.load().zoom || 1
     const bounds = win.getBounds()
     win.setBounds({
       x: bounds.x,
       y: bounds.y,
-      width: Math.min(Math.max(bounds.width + parsed.data.deltaWidth, ASSISTANT_MIN.width), ASSISTANT_MAX.width),
-      height: Math.min(Math.max(bounds.height + parsed.data.deltaHeight, ASSISTANT_MIN.height), ASSISTANT_MAX.height)
+      width: Math.min(Math.max(bounds.width + parsed.data.deltaWidth * zoom, ASSISTANT_MIN.width), ASSISTANT_MAX.width),
+      height: Math.min(Math.max(bounds.height + parsed.data.deltaHeight * zoom, ASSISTANT_MIN.height), ASSISTANT_MAX.height)
     })
     return { ok: true }
   })
