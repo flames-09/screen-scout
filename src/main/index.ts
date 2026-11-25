@@ -1065,7 +1065,9 @@ app.whenReady().then(async () => {
     // takes effect immediately; each tick re-reads the setting.
     if (!E2E_TEST && !SMOKE_TEST && !INTEGRATION_TEST && !PERSISTENCE_PHASE) {
       const autoCheck = (): void => {
-        if (settingsStore.load().updatesEnabled) void updateService.check()
+        // Skip when this build has no feed (macOS beta) — a check would just
+        // churn an error phase every launch and every 6 hours.
+        if (settingsStore.load().updatesEnabled && updateFeedUrl() !== '') void updateService.check()
       }
       setTimeout(autoCheck, 45_000)
       setInterval(autoCheck, 6 * 60 * 60 * 1000)

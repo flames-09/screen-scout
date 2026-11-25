@@ -107,15 +107,23 @@ export class CaptureService {
   private async runSelection(assistant: BrowserWindow): Promise<SelectionStartResult> {
     // 0. macOS TCC gate: without Screen Recording permission desktopCapturer
     //    silently returns empty thumbnails, which would read as "capture came
-    //    out black". Fail early with the exact fix instead.
+    //    out black". 'not-determined' deliberately proceeds — the first
+    //    desktopCapturer call is what registers the app with TCC and triggers
+    //    the macOS consent prompt; gating on it would dead-end the instructions
+    //    (the app would not yet appear in the Screen Recording list). Only an
+    //    explicit denial stops here, with the fix spelled out.
     if (process.platform === 'darwin') {
       const status = systemPreferences.getMediaAccessStatus('screen')
-      if (status !== 'granted') {
+      if (status === 'denied' || status === 'restricted') {
+        // Always re-show: in the direct-capture flow the popup is hidden, and
+        // a silent no-op would leave the user with zero feedback.
+        assistant.show()
         return {
           status: 'failed',
           message:
             'Screen Scout needs Screen Recording permission to capture a region. ' +
-            'Open System Settings, Privacy & Security, Screen Recording, enable Screen Scout, then reopen the app.'
+            'Open System Settings, Privacy & Security, Screen Recording, enable Screen Scout ' +
+            "(add it with the + button if it isn't listed), then reopen the app."
         }
       }
     }

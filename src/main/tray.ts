@@ -30,7 +30,10 @@ export function createTray(deps: {
   const tray = new Tray(image)
 
   const updateTooltip = (): void => {
-    tray.setToolTip(`Screen Scout — ${deps.shortcutLabel()} to open`)
+    tray.setToolTip(`Screen Scout - ${deps.shortcutLabel()} to open`)
+  // Note: on macOS, setContextMenu means a left-click pops the menu (click
+  // events are suppressed), so mac users get the menu instead of the
+  // left-click toggle. The menu's Open assistant entry covers it for now.
   }
   updateTooltip()
 
