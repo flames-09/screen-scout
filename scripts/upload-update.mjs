@@ -53,8 +53,12 @@ const manifest = {
 }
 
 function wrangler(args) {
-  console.log(`> npx wrangler ${args.join(' ')}`)
-  execFileSync('npx', ['wrangler', ...args], { cwd: join(root, 'relay'), stdio: 'inherit', shell: process.platform === 'win32' })
+  // Run the local wrangler binary directly via node (no shell): a shell wrapper
+  // can swallow wrangler's non-zero exit code, which once made a failed R2
+  // upload print a success message. node propagates the real exit code.
+  const wranglerBin = join(root, 'relay', 'node_modules', 'wrangler', 'bin', 'wrangler.js')
+  console.log(`> wrangler ${args.join(' ')}`)
+  execFileSync(process.execPath, [wranglerBin, ...args], { cwd: join(root, 'relay'), stdio: 'inherit' })
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'scout-update-'))

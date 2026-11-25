@@ -35,12 +35,11 @@ HOSTED_ENABLED = "true"
 # Oldest app version the hosted service accepts; "0.0.0" disables the gate.
 MIN_APP_VERSION = "0.0.0"
 
-# Update-feed bucket — UNCOMMENT once R2 is enabled on the Cloudflare account
-# and the bucket is created (`npx wrangler r2 bucket create screen-scout-updates`).
-# Until then the relay answers /updates/* with 503 updates-unavailable.
-# [[r2_buckets]]
-# binding = "UPDATES"
-# bucket_name = "screen-scout-updates"
+# Update-feed bucket: serves /updates/latest.json and installer downloads.
+# Populated by `node scripts/upload-update.mjs` after `npm run dist`.
+[[r2_buckets]]
+binding = "UPDATES"
+bucket_name = "screen-scout-updates"
 
 [[d1_databases]]
 binding = "DB"

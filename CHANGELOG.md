@@ -4,6 +4,17 @@ All notable changes to Screen Scout are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com); versions follow
 [SemVer](https://semver.org).
 
+## [0.1.1] — 2026-11-24
+
+### Changed
+
+- New logo and icons across the app, installer, and tray.
+- The header chip in the assistant now shows the model that actually answered
+  each question: GPT-OSS 120B on Groq for text questions, Llama 4 Scout on
+  Cloudflare for screenshots (previously a static label).
+
+[0.1.1]: https://github.com/flames-09/screen-scout/releases/tag/v0.1.1
+
 ## [0.1.0] — 2026-11-07
 
 Initial public build.
@@ -49,4 +60,4 @@ Initial public build.
   minimum-app-version gate (`MIN_APP_VERSION`), and a runbook in
   `relay/README.md`.
 
-[0.1.0]: https://github.com/OWNER/REPO/releases/tag/v0.1.0
+[0.1.0]: https://github.com/flames-09/screen-scout/releases/tag/v0.1.0
