@@ -18,8 +18,8 @@
     "e2e": "electron . --e2e",
     "test:persistence": "node scripts/test-persistence.mjs",
     "icons": "node scripts/generate-icons.mjs",
-    "dist": "electron-vite build && electron-builder --win",
-    "dist:mac": "electron-vite build && electron-builder --mac"
+    "dist": "electron-vite build && electron-builder --win --publish never",
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never"
   },
   "devDependencies": {
     "@fontsource-variable/cascadia-code": "^5.3.0",
