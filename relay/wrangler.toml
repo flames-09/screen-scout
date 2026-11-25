@@ -35,11 +35,11 @@ HOSTED_ENABLED = "true"
 # Oldest app version the hosted service accepts; "0.0.0" disables the gate.
 MIN_APP_VERSION = "0.0.0"
 
-# Update-feed bucket: serves /updates/latest.json and installer downloads.
-# Populated by `node scripts/upload-update.mjs` after `npm run dist`.
-[[r2_buckets]]
-binding = "UPDATES"
-bucket_name = "screen-scout-updates"
+# Update feed: the manifest lives in D1 (table update_manifest, id = 1) and
+# points at the installer download on GitHub Releases (free, no payment
+# method). /updates/<file> 302-redirects there. Publish with:
+#   node scripts/upload-update.mjs --url <github-download-url> --notes "..."
+# No R2 binding is needed; R2 requires a payment method even on its free tier.
 
 [[d1_databases]]
 binding = "DB"

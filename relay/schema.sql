@@ -18,3 +18,15 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices (last_seen);
+
+-- Update feed: single row (id = 1) pointing at the published installer on
+-- GitHub Releases. Populated by `node scripts/upload-update.mjs`.
+CREATE TABLE IF NOT EXISTS update_manifest (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version TEXT NOT NULL,
+  url TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  pub_date TEXT NOT NULL
+);

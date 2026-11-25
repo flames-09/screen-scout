@@ -30,21 +30,9 @@ export interface Ai {
   run(model: string, inputs: Record<string, unknown>): Promise<unknown>
 }
 
-/** Minimal R2 surface: the relay only reads update assets. */
-export interface R2ObjectBody {
-  body: ReadableStream
-  size: number
-}
-
-export interface R2Bucket {
-  get(key: string): Promise<R2ObjectBody | null>
-}
-
 export interface Env {
   DB: D1Database
   AI: Ai
-  /** Update-feed bucket; optional so a deploy without it still serves chat. */
-  UPDATES?: R2Bucket
   /** Secret — Groq API key (free tier). */
   GROQ_API_KEY?: string
   /**

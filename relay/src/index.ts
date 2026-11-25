@@ -521,25 +521,58 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Serves an update-feed asset from the R2 bucket. latest.json must never be
- * cached (it is the version pointer); installers may cache for an hour.
+ * Update feed. The manifest lives in D1 (one row, id = 1) and points at the
+ * installer on GitHub Releases — free hosting, no payment method required
+ * (R2 demands a card even on its free tier). The desktop client resolves the
+ * manifest's absolute URL itself and verifies sha256 after download.
  */
-async function serveUpdateFile(env: Env, key: string, contentType: string): Promise<Response> {
-  if (!env.UPDATES) return apiError(503, 'updates-unavailable', 'The update feed is not configured on this relay.')
-  let object: Awaited<ReturnType<NonNullable<Env['UPDATES']>['get']>>
+export interface UpdateManifest {
+  version: string
+  url: string
+  sha256: string
+  sizeBytes: number
+  notes: string
+  pubDate: string
+}
+
+const UPDATE_FEED_UNCONFIGURED: [number, string, string] = [
+  503,
+  'updates-unavailable',
+  'The update feed is not configured on this relay.'
+]
+
+async function readUpdateManifest(env: Env): Promise<UpdateManifest | null> {
+  return await env.DB.prepare(
+    'SELECT version, url, sha256, size_bytes AS sizeBytes, notes, pub_date AS pubDate FROM update_manifest WHERE id = 1'
+  ).first<UpdateManifest>()
+}
+
+/** latest.json is the version pointer — must never be cached. */
+export async function serveUpdateManifest(env: Env): Promise<Response> {
+  let manifest: UpdateManifest | null
   try {
-    // The binding can exist while the bucket is disabled/not yet created.
-    object = await env.UPDATES.get(key)
+    manifest = await readUpdateManifest(env)
   } catch {
     return apiError(503, 'updates-unavailable', 'The update feed is temporarily unavailable.')
   }
-  if (!object) return apiError(404, 'not-found', 'Unknown update asset.')
-  return new Response(object.body, {
-    headers: {
-      'Content-Type': contentType,
-      'Content-Length': String(object.size),
-      'Cache-Control': key.endsWith('latest.json') ? 'no-store' : 'public, max-age=3600'
-    }
+  if (!manifest) return apiError(...UPDATE_FEED_UNCONFIGURED)
+  return json(200, manifest)
+}
+
+/** /updates/<file>: humans and relative links land on the real download. */
+export async function serveUpdateRedirect(env: Env, requested: string): Promise<Response> {
+  let manifest: UpdateManifest | null
+  try {
+    manifest = await readUpdateManifest(env)
+  } catch {
+    return apiError(503, 'updates-unavailable', 'The update feed is temporarily unavailable.')
+  }
+  if (!manifest) return apiError(...UPDATE_FEED_UNCONFIGURED)
+  const fileName = manifest.url.split('/').pop() ?? ''
+  if (requested !== `updates/${fileName}`) return apiError(404, 'not-found', 'Unknown update asset.')
+  return new Response(null, {
+    status: 302,
+    headers: { Location: manifest.url, 'Cache-Control': 'no-store' }
   })
 }
 
@@ -566,12 +599,12 @@ export default {
       })
     }
 
-    // Update feed: static assets (latest.json + installers) streamed from R2.
+    // Update feed: manifest from D1, installer bytes on GitHub Releases.
     if (request.method === 'GET' && path === '/updates/latest.json') {
-      return serveUpdateFile(env, 'updates/latest.json', 'application/json')
+      return serveUpdateManifest(env)
     }
     if (request.method === 'GET' && path.startsWith('/updates/')) {
-      return serveUpdateFile(env, path.slice(1), 'application/octet-stream')
+      return serveUpdateRedirect(env, path.slice(1))
     }
 
     if (path === '/v1/register' && request.method === 'POST') return handleRegister(request, env)
