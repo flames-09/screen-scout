@@ -13,8 +13,16 @@ export function createTray(deps: {
   openSettings: () => void
   shortcutLabel: () => string
 }): Tray {
-  const iconPath = path.join(__dirname, '../../assets/tray.png')
+  // macOS menu bars want a monochrome template image the system can tint for
+  // light/dark mode; Windows keeps the colored tile. Electron picks up the
+  // 2x variant automatically when the file is named `<name>@2x.png`.
+  const iconPath = path.join(
+    __dirname,
+    '../../assets',
+    process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png'
+  )
   let image = nativeImage.createFromPath(iconPath)
+  if (process.platform === 'darwin' && !image.isEmpty()) image.setTemplateImage(true)
   if (image.isEmpty()) {
     // Extremely defensive fallback: a 1px transparent image keeps the tray alive.
     image = nativeImage.createEmpty()

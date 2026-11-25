@@ -84,6 +84,47 @@ jobs:
           path: dist/Screen-Scout-*-setup.exe
           if-no-files-found: error
 
+  macos:
+    name: macOS — typecheck, unit, unsigned dmg/zip (beta)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # No mac E2E yet (the journey suite drives Windows-specific flows);
+      # unit tests still validate everything platform-neutral on darwin.
+      - name: Unit tests
+        run: npm test
+
+      - name: Build bundles
+        run: npm run build
+
+      # Unsigned on purpose (beta): users right-click → Open on first launch.
+      - name: Package dmg + zip
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Screen-Scout-mac
+          path: |
+            dist/Screen-Scout-*-mac-*.dmg
+            dist/Screen-Scout-*-mac-*.zip
+          if-no-files-found: error
+
   relay:
     name: Relay — typecheck + deploy dry-run
     runs-on: ubuntu-latest

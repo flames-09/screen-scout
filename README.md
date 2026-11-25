@@ -34,6 +34,9 @@ A Windows tray assistant for asking questions about what's on your screen: selec
 > [!WARNING]
 > The installer is unsigned, so Windows SmartScreen may warn on first launch — choose *More info → Run anyway*.
 
+> [!NOTE]
+> On macOS? An unsigned beta (arm64 + x64 `.dmg`/`.zip`) is built on every commit — grab it from the [Actions tab](https://github.com/flames-09/screen-scout/actions?query=branch%3Amain). Right-click the app and choose Open on first launch (Gatekeeper), then grant Screen Recording under System Settings, Privacy & Security when asked. Auto-update is Windows-only for now.
+
 ## What it does
 
 - Starts quietly in the tray; no window opens at launch.
@@ -127,7 +130,8 @@ The installer is unsigned. Click *More info → Run anyway*, or build it yoursel
 <details>
 <summary>Does it work on macOS or Linux?</summary>
 
-Not yet. The capture layer is platform-isolated so macOS can be added later; today it's Windows 10/11.
+macOS: an early beta — CI builds an unsigned `.dmg`/`.zip` (arm64 + x64) on every commit (Actions tab). Right-click → Open on first launch, and grant Screen Recording in System Settings when prompted. Auto-update is Windows-only for now; macOS updates are manual downloads.
+Linux: not yet.
 </details>
 
 <details>
@@ -306,6 +310,7 @@ tests/                   # vitest: NIM client, SSE parser, relay auth/quota/SSE,
 - Session-only conversation memory: closing the popup clears the chat by design (privacy).
 - Mixed-DPI/multi-monitor mapping is implemented via normalized-display coordinates and covered by unit tests, but should still be checked once on a real mixed-DPI setup.
 - Hosted mode has fair-use quotas (per device/account and account-wide) and no availability guarantee — it's a free tier, not a paid API. BYOK users keep their own NVIDIA limits.
+- macOS is a beta: CI runs typecheck, unit tests, and packaging on a real macOS runner, but the full user-journey E2E suite only runs on Windows. There is no mac auto-update yet (the update feed points at the Windows installer).
 </details>
 
 ---

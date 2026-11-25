@@ -1,4 +1,4 @@
-import { BrowserWindow, desktopCapturer, ipcMain, screen } from 'electron'
+import { BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences } from 'electron'
 import type { DisplayInfo, Rect, SelectionResult, SelectionStartResult } from '@shared/types'
 import { selectionRectSchema } from '@shared/schemas'
 import {
@@ -105,6 +105,21 @@ export class CaptureService {
   }
 
   private async runSelection(assistant: BrowserWindow): Promise<SelectionStartResult> {
+    // 0. macOS TCC gate: without Screen Recording permission desktopCapturer
+    //    silently returns empty thumbnails, which would read as "capture came
+    //    out black". Fail early with the exact fix instead.
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('screen')
+      if (status !== 'granted') {
+        return {
+          status: 'failed',
+          message:
+            'Screen Scout needs Screen Recording permission to capture a region. ' +
+            'Open System Settings, Privacy & Security, Screen Recording, enable Screen Scout, then reopen the app.'
+        }
+      }
+    }
+
     // 1. Hide the assistant popup so it is never part of the screenshot.
     const wasVisible = assistant.isVisible()
     if (wasVisible) assistant.hide()

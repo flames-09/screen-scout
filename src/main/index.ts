@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, safeStorage, shell } from 'electron'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import * as fs from 'node:fs'
@@ -332,12 +332,16 @@ function bootstrap(): void {
   })
 
   // --- Update feed ------------------------------------------------------------
-  // Served by the relay from R2 under /updates (same host as hosted mode, same
+  // Served by the relay under /updates (same host as hosted mode, same
   // runtime override for the E2E mock). An empty relay URL disables updates.
+  // The feed currently points at the Windows installer, so on macOS the
+  // feature stays off rather than offering the wrong binary. Revisit when
+  // the manifest becomes per-platform.
+  const updateFeedUrl = (): string => (process.platform === 'win32' ? relayUrl() : '')
   const updateStateSnapshot = (): { phase: UpdatePhase; appVersion: string; updatesAvailable: boolean } => ({
     phase: updateService.currentPhase(),
     appVersion: app.getVersion(),
-    updatesAvailable: relayUrl() !== ''
+    updatesAvailable: updateFeedUrl() !== ''
   })
   const broadcastUpdateState = (): void => {
     const snapshot = updateStateSnapshot()
@@ -347,7 +351,7 @@ function bootstrap(): void {
   }
   const updateService = new UpdateService({
     fetch: (input, init) => net.fetch(input, init) as unknown as Promise<{ ok: boolean; status: number }>,
-    baseUrl: relayUrl,
+    baseUrl: updateFeedUrl,
     currentVersion: () => app.getVersion(),
     tempDir: () => app.getPath('temp'),
     joinPath: (...parts) => path.join(...parts),
@@ -990,7 +994,40 @@ function bootstrap(): void {
     quitting = true
   })
 
-  app.whenReady().then(async () => {
+  /**
+ * macOS shell adjustments for a tray-resident app: hide the Dock icon
+ * (LSUIElement in the packaged build covers it too, but the dev app needs
+ * this), and install a minimal application menu — without one, macOS text
+ * fields get no Edit shortcuts (Cmd+C/V/A) at all. Windows keeps its current
+ * behavior (frameless windows hide the menu bar).
+ */
+function applyMacPlatformShell(): void {
+  if (process.platform !== 'darwin') return
+  app.dock?.hide()
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'quit' }]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
+    ])
+  )
+}
+
+app.whenReady().then(async () => {
     if (PERSISTENCE_PHASE) {
       runPersistencePhase(PERSISTENCE_PHASE)
       return
@@ -1009,6 +1046,7 @@ function bootstrap(): void {
     applyShortcut()
     applyCaptureShortcut()
     applyPeekShortcut()
+    applyMacPlatformShell()
     // E2E surveillance must be registered before the first window is created
     // so early load errors are captured too.
     const e2eSurveillance = E2E_TEST ? setupE2eSurveillance() : null

@@ -58,7 +58,7 @@ export function EmptyState({
         </span>
         <span className="hint-row">
           <ClipboardPaste size={12} strokeWidth={2} />
-          Or paste (Ctrl+V) / drop an image
+          Or paste ({/Mac/i.test(navigator.platform) ? 'Cmd+V' : 'Ctrl+V'}) / drop an image
         </span>
         <span className="hint-row">
           <MousePointerClick size={12} strokeWidth={2} />

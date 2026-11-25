@@ -25,5 +25,23 @@ nsis:
   deleteAppDataOnUninstall: false
   artifactName: Screen-Scout-${version}-setup.${ext}
 
+# macOS beta build (see README): unsigned, CI-built on GitHub's macOS runners.
+# electron-builder converts assets/icon.png to .icns automatically.
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  category: public.app-category.utilities
+  icon: assets/icon.png
+  identity: null
+  artifactName: Screen-Scout-${version}-mac-${arch}.${ext}
+  extendInfo:
+    # Tray-resident app: no Dock icon, no main window at launch.
+    LSUIElement: true
+    # Shown by the TCC prompt when Screen Recording permission is requested.
+    NSScreenCaptureDescription: "Screen Scout captures a screen region only when you start a selection, so you can ask questions about what is on screen."
+
 electronDownload:
   cache: .electron-cache

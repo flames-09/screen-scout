@@ -200,6 +200,63 @@ function renderIcon(size) {
   return encodePNG(size, size, rgba)
 }
 
+// ---------------------------------------------------------------- template icon (macOS)
+// macOS menu-bar icons must be black + alpha "template" images so the system
+// can tint them for light/dark menus. Only the glyph (brackets, ring, dot)
+// is drawn — no plate — at 16pt and its 32px @2x variant.
+function renderTemplateIcon(size) {
+  const SS = 4
+  const W = size * SS
+  const rgba = Buffer.alloc(size * size * 4)
+  const cx = W / 2
+  const cy = W / 2
+
+  const inset = W * 0.3
+  const len = W * 0.15
+  const strokeW = W * 0.055
+  const ringR = W * 0.15
+  const ringW = W * 0.05
+  const dotR = W * 0.05
+
+  const segs = [
+    [cx - inset, cy - inset, cx - inset + len, cy - inset],
+    [cx - inset, cy - inset, cx - inset, cy - inset + len],
+    [cx + inset, cy - inset, cx + inset - len, cy - inset],
+    [cx + inset, cy - inset, cx + inset, cy - inset + len],
+    [cx - inset, cy + inset, cx - inset + len, cy + inset],
+    [cx - inset, cy + inset, cx - inset, cy + inset - len],
+    [cx + inset, cy + inset, cx + inset - len, cy + inset],
+    [cx + inset, cy + inset, cx + inset, cy + inset - len]
+  ]
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let coverage = 0
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const px = x * SS + sx + 0.5
+          const py = y * SS + sy + 0.5
+          let a = 0
+          for (const [ax, ay, bx, by] of segs) {
+            const d = segmentDist(px, py, ax, ay, bx, by)
+            if (d < strokeW / 2) { a = 1; break }
+            if (d < strokeW) a = Math.max(a, 1 - (d - strokeW / 2) / (strokeW / 2))
+          }
+          const rd = Math.hypot(px - cx, py - cy)
+          if (Math.abs(rd - ringR) < ringW / 2) a = 1
+          else if (Math.abs(rd - ringR) < ringW * 1.4) a = Math.max(a, 1 - (Math.abs(rd - ringR) - ringW / 2) / (ringW * 0.9))
+          if (rd < dotR) a = 1
+          coverage += a
+        }
+      }
+      const o = (y * size + x) * 4
+      rgba[o + 3] = clamp(Math.round((coverage / (SS * SS)) * 255), 0, 255)
+      // rgb stays 0 (black); alpha carries the shape for template tinting
+    }
+  }
+  return encodePNG(size, size, rgba)
+}
+
 // ---------------------------------------------------------------- run
 mkdirSync(outDir, { recursive: true })
 for (const size of [16, 32, 256, 512]) {
@@ -208,3 +265,6 @@ for (const size of [16, 32, 256, 512]) {
   writeFileSync(join(outDir, name), png)
   console.log(`wrote assets/${name} (${png.length} bytes)`)
 }
+writeFileSync(join(outDir, 'trayTemplate.png'), renderTemplateIcon(16))
+writeFileSync(join(outDir, 'trayTemplate@2x.png'), renderTemplateIcon(32))
+console.log('wrote assets/trayTemplate.png + assets/trayTemplate@2x.png (macOS menu bar)')

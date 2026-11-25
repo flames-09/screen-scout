@@ -4,6 +4,15 @@ All notable changes to Screen Scout are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com); versions follow
 [SemVer](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- macOS beta: menu-bar tray (template icon, hidden Dock), desktopCapturer capture
+  with a Screen Recording permission check, Edit-menu shortcuts in text fields,
+  and unsigned dmg/zip packaging (arm64 + x64) built by CI. Auto-update remains
+  Windows-only until the update feed is per-platform.
+
 ## [0.1.1] — 2026-11-24
 
 ### Changed
