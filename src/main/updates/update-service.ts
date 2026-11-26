@@ -1,18 +1,23 @@
 import { createHash } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
-import { updateManifestSchema, type UpdateManifest } from '@shared/schemas'
+import { updateManifestSchema, type UpdateManifest, type UpdatePlatformManifest } from '@shared/schemas'
 import type { UpdatePhase } from '@shared/types'
 
 export type { UpdatePhase } from '@shared/types'
 
 /**
- * Update service for the packaged Windows app.
+ * Update service for the packaged Windows and macOS (beta) apps.
  *
  * Checks the relay's update feed (`/updates/latest.json`), downloads the
- * installer to a temp file, verifies its SHA-256 against the manifest, and
- * launches it. Deliberately NOT electron-updater: the app ships with no
- * node_modules (everything is bundled by electron-vite), so the updater is a
- * small, dependency-free module here instead.
+ * platform installer to disk, verifies its SHA-256 against the manifest,
+ * and finishes the update. Deliberately NOT electron-updater: the app ships
+ * with no node_modules (everything is bundled by electron-vite), so the
+ * updater is a small, dependency-free module here instead.
+ *
+ * Platform finishing moves (handled by the caller in main/index.ts):
+ * - Windows: launch the verified NSIS installer with `/S` (silent).
+ * - macOS: the verified DMG sits in ~/Downloads — unsigned apps cannot be
+ *   replaced in place, so the user gets a Finder hand-off with instructions.
  *
  * Integrity model: HTTPS to the relay + the manifest's sha256 over the exact
  * installer bytes. The app is unsigned, so this is the strongest available
@@ -52,6 +57,10 @@ export interface UpdateDeps {
   baseUrl(): string
   currentVersion(): string
   tempDir(): string
+  /** Where finished mac DMGs are parked (~/Downloads on darwin). */
+  downloadsDir?(): string
+  /** Override for tests; defaults to the real platform key. */
+  platformKey?(): string
   joinPath(...parts: string[]): string
   fs: UpdateFs
   spawn: SpawnLike
@@ -59,7 +68,7 @@ export interface UpdateDeps {
 }
 
 /** Hard cap on downloaded installers, manifest size or not. */
-const MAX_DOWNLOAD_BYTES = 400 * 1024 * 1024
+const MAX_DOWNLOAD_BYTES = 600 * 1024 * 1024
 /** A fully stalled download (no bytes for this long) is treated as failed. */
 const DOWNLOAD_STALL_MS = 60_000
 /** Manifest checks must never hang the UI. */
@@ -92,6 +101,27 @@ export function resolveInstallerUrl(baseUrl: string, url: string): string {
   return `${baseUrl.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
+/** Which manifest platform entry serves this build ('win' | 'mac-arm64' | 'mac-x64'). */
+export function platformKey(platform: string = process.platform, arch: string = process.arch): string {
+  if (platform === 'darwin') return arch === 'arm64' ? 'mac-arm64' : 'mac-x64'
+  return 'win'
+}
+
+/**
+ * Picks the manifest entry for this build: the platforms map wins; the
+ * top-level fields are the legacy Windows-only feed. Returns null when the
+ * feed publishes no build for this platform (mac before its first release).
+ */
+export function selectPlatformManifest(
+  manifest: UpdateManifest,
+  key: string
+): UpdatePlatformManifest | null {
+  const entry = manifest.platforms?.[key]
+  if (entry) return entry
+  if (key === 'win') return manifest
+  return null
+}
+
 export class UpdateService {
   private phase: UpdatePhase = { kind: 'idle' }
   private busy = false
@@ -110,6 +140,10 @@ export class UpdateService {
   private fail(message: string): UpdatePhase {
     this.set({ kind: 'error', message })
     return this.phase
+  }
+
+  private key(): string {
+    return this.deps.platformKey?.() ?? platformKey()
   }
 
   /** Fetches and validates the manifest; resolves to 'current' or 'available'. */
@@ -152,12 +186,18 @@ export class UpdateService {
       if (!parsed.success) {
         return this.fail('Update feed returned a malformed manifest.')
       }
-      const manifest: UpdateManifest = parsed.data
-      if (!needsUpdate(manifest.version, this.deps.currentVersion())) {
-        this.set({ kind: 'current', version: manifest.version })
+      const entry = selectPlatformManifest(parsed.data, this.key())
+      if (!entry) {
+        // No build published for this platform yet (e.g. mac before its
+        // first release) — a quiet "up to date" beats an error.
+        this.set({ kind: 'current', version: this.deps.currentVersion() })
         return this.phase
       }
-      this.set({ kind: 'available', version: manifest.version, notes: manifest.notes })
+      if (!needsUpdate(entry.version, this.deps.currentVersion())) {
+        this.set({ kind: 'current', version: entry.version })
+        return this.phase
+      }
+      this.set({ kind: 'available', version: entry.version, notes: entry.notes })
       return this.phase
     } catch (error) {
       const aborted = error instanceof Error && error.name === 'AbortError'
@@ -197,13 +237,17 @@ export class UpdateService {
       }
       const parsed = updateManifestSchema.safeParse(JSON.parse(manifestText))
       if (!parsed.success) return this.fail('Update feed returned a malformed manifest.')
-      const manifest: UpdateManifest = parsed.data
-      if (!needsUpdate(manifest.version, this.deps.currentVersion())) {
-        this.set({ kind: 'current', version: manifest.version })
+      const entry = selectPlatformManifest(parsed.data, this.key())
+      if (!entry) {
+        this.set({ kind: 'current', version: this.deps.currentVersion() })
+        return this.phase
+      }
+      if (!needsUpdate(entry.version, this.deps.currentVersion())) {
+        this.set({ kind: 'current', version: entry.version })
         return this.phase
       }
 
-      const url = resolveInstallerUrl(base, manifest.url)
+      const url = resolveInstallerUrl(base, entry.url)
       const downloadController = new AbortController()
       const stall = setTimeout(() => downloadController.abort(), DOWNLOAD_STALL_MS)
       const resetStall = (): void => {
@@ -221,9 +265,14 @@ export class UpdateService {
         return this.fail(`Installer download returned HTTP ${response.status}.`)
       }
 
-      const size = manifest.sizeBytes ?? 0
+      const size = entry.sizeBytes ?? 0
       const cap = Math.min(MAX_DOWNLOAD_BYTES, size > 0 ? Math.max(size + 1024 * 1024, size * 1.05) : MAX_DOWNLOAD_BYTES)
-      target = this.deps.joinPath(this.deps.tempDir(), `Screen-Scout-setup-${manifest.version}.exe`)
+      // Name the file after the published asset (setup.exe on Windows, the
+      // arch dmg on macOS). Mac DMGs land in ~/Downloads so the user can
+      // open them directly; Windows installs from temp.
+      const assetName = entry.url.split('?')[0].split('/').pop() || `Screen-Scout-${entry.version}`
+      const downloadDir = this.deps.downloadsDir?.() ?? this.deps.tempDir()
+      target = this.deps.joinPath(downloadDir, assetName)
       stream = this.deps.fs.createWriteStream(target)
       const writeState: { error: Error | null } = { error: null }
       stream.once('error', () => {
@@ -251,7 +300,7 @@ export class UpdateService {
             const percent = Math.min(99, Math.floor((received / size) * 100))
             if (percent !== lastPercent) {
               lastPercent = percent
-              this.set({ kind: 'downloading', version: manifest.version, percent })
+              this.set({ kind: 'downloading', version: entry.version, percent })
             }
           }
         }
@@ -270,11 +319,11 @@ export class UpdateService {
       }
 
       const digest = hash.digest('hex').toLowerCase()
-      if (digest !== manifest.sha256.toLowerCase()) {
+      if (digest !== entry.sha256.toLowerCase()) {
         this.deps.fs.unlink(target)
         return this.fail('The downloaded installer failed its integrity check.')
       }
-      this.set({ kind: 'verified', version: manifest.version, filePath: target })
+      this.set({ kind: 'verified', version: entry.version, filePath: target })
       return this.phase
     } catch (error) {
       if (target) {
@@ -301,7 +350,11 @@ export class UpdateService {
     }
   }
 
-  /** Launches the verified installer detached; the caller quits the app. */
+  /**
+   * Windows finishing move: launches the verified NSIS installer detached
+   * (the caller quits the app). On macOS the caller handles 'verified'
+   * differently — a Finder hand-off to the DMG — and never calls this.
+   */
   install(): boolean {
     if (this.phase.kind !== 'verified') return false
     // The verified file can vanish between download and Install (temp

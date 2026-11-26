@@ -148,6 +148,14 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ captureShortcut: 'x+Y' }).captureShortcut).toBe('Shift+C')
     expect(sanitizeSettings({ captureShortcut: 42 }).captureShortcut).toBe('Shift+C')
   })
+
+  it('defaults answerStyle to brief and rejects unknown values', () => {
+    expect(DEFAULT_SETTINGS.answerStyle).toBe('brief')
+    expect(sanitizeSettings({}).answerStyle).toBe('brief')
+    expect(sanitizeSettings({ answerStyle: 'detailed' }).answerStyle).toBe('detailed')
+    expect(sanitizeSettings({ answerStyle: 'verbose' }).answerStyle).toBe('brief')
+    expect(sanitizeSettings({ answerStyle: 7 }).answerStyle).toBe('brief')
+  })
 })
 
 describe('access mode settings', () => {

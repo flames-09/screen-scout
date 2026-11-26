@@ -521,10 +521,13 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Update feed. The manifest lives in D1 (one row, id = 1) and points at the
- * installer on GitHub Releases — free hosting, no payment method required
- * (R2 demands a card even on its free tier). The desktop client resolves the
- * manifest's absolute URL itself and verifies sha256 after download.
+ * Update feed. Manifest rows live in D1 — one per platform ('win',
+ * 'mac-arm64', 'mac-x64') — and point at the installers on GitHub Releases:
+ * free hosting, no payment method required (R2 demands a card even on its
+ * free tier). latest.json keeps the win manifest at the top level so clients
+ * shipped before per-platform feeds keep working, and adds a `platforms`
+ * map for platform-aware clients. The desktop client resolves the manifest's
+ * absolute URL itself and verifies sha256 after download.
  */
 export interface UpdateManifest {
   version: string
@@ -535,45 +538,79 @@ export interface UpdateManifest {
   pubDate: string
 }
 
+export interface UpdateManifestRow extends UpdateManifest {
+  platform: string
+}
+
+const UPDATE_FEED_WIN = 'win'
+
 const UPDATE_FEED_UNCONFIGURED: [number, string, string] = [
   503,
   'updates-unavailable',
   'The update feed is not configured on this relay.'
 ]
 
-async function readUpdateManifest(env: Env): Promise<UpdateManifest | null> {
-  return await env.DB.prepare(
-    'SELECT version, url, sha256, size_bytes AS sizeBytes, notes, pub_date AS pubDate FROM update_manifest WHERE id = 1'
-  ).first<UpdateManifest>()
+async function readUpdateManifestRows(env: Env): Promise<UpdateManifestRow[]> {
+  const result = await env.DB.prepare(
+    'SELECT platform, version, url, sha256, size_bytes AS sizeBytes, notes, pub_date AS pubDate FROM update_manifest'
+  ).all<UpdateManifestRow>()
+  return (result.results ?? []).filter(
+    (row) =>
+      typeof row.platform === 'string' &&
+      row.platform !== '' &&
+      typeof row.version === 'string' &&
+      typeof row.url === 'string' &&
+      typeof row.sha256 === 'string' &&
+      typeof row.sizeBytes === 'number'
+  )
+}
+
+function stripManifestRow(row: UpdateManifestRow): UpdateManifest {
+  return {
+    version: row.version,
+    url: row.url,
+    sha256: row.sha256,
+    sizeBytes: row.sizeBytes,
+    notes: row.notes,
+    pubDate: row.pubDate
+  }
 }
 
 /** latest.json is the version pointer — must never be cached. */
 export async function serveUpdateManifest(env: Env): Promise<Response> {
-  let manifest: UpdateManifest | null
+  let rows: UpdateManifestRow[]
   try {
-    manifest = await readUpdateManifest(env)
+    rows = await readUpdateManifestRows(env)
   } catch {
     return apiError(503, 'updates-unavailable', 'The update feed is temporarily unavailable.')
   }
-  if (!manifest) return apiError(...UPDATE_FEED_UNCONFIGURED)
-  return json(200, manifest)
+  const win = rows.find((row) => row.platform === UPDATE_FEED_WIN)
+  // The Windows feed is the primary pointer; without it the feed is
+  // considered unconfigured even if other platforms exist.
+  if (!win) return apiError(...UPDATE_FEED_UNCONFIGURED)
+  const platforms: Record<string, UpdateManifest> = {}
+  for (const row of rows) platforms[row.platform] = stripManifestRow(row)
+  return json(200, { ...stripManifestRow(win), platforms })
 }
 
 /** /updates/<file>: humans and relative links land on the real download. */
 export async function serveUpdateRedirect(env: Env, requested: string): Promise<Response> {
-  let manifest: UpdateManifest | null
+  let rows: UpdateManifestRow[]
   try {
-    manifest = await readUpdateManifest(env)
+    rows = await readUpdateManifestRows(env)
   } catch {
     return apiError(503, 'updates-unavailable', 'The update feed is temporarily unavailable.')
   }
-  if (!manifest) return apiError(...UPDATE_FEED_UNCONFIGURED)
-  const fileName = manifest.url.split('/').pop() ?? ''
-  if (requested !== `updates/${fileName}`) return apiError(404, 'not-found', 'Unknown update asset.')
-  return new Response(null, {
-    status: 302,
-    headers: { Location: manifest.url, 'Cache-Control': 'no-store' }
-  })
+  for (const row of rows) {
+    const fileName = row.url.split('/').pop() ?? ''
+    if (requested === `updates/${fileName}`) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: row.url, 'Cache-Control': 'no-store' }
+      })
+    }
+  }
+  return apiError(404, 'not-found', 'Unknown update asset.')
 }
 
 export default {

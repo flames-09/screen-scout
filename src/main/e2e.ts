@@ -974,6 +974,58 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
           JSON.stringify(relayChat)
         )
 
+        // Copy response: the completed answer lands on the clipboard. The
+        // window is focused first — navigator.clipboard refuses writes when
+        // the document is not focused, and copy() fails silently then.
+        assistant.focus()
+        record(
+          'answer.copyButton',
+          (await assistant.webContents.executeJavaScript(clickJs('[aria-label="Copy response"]'))) === true &&
+            (await waitUntil(
+              'clipboard holds answer',
+              async () => clipboard.readText().includes('The answer is 42.'),
+              4000
+            )),
+          clipboard.readText().slice(0, 120)
+        )
+
+        // Answer style: the default Brief instruction rides in the system
+        // prompt; toggling to Detailed persists and the next request carries
+        // the thorough marker instead.
+        record(
+          'style.defaultBriefSent',
+          relayChat?.systemTail.includes('be brief') === true,
+          JSON.stringify(relayChat)
+        )
+        record(
+          'style.toggleDetailed',
+          (await assistant.webContents.executeJavaScript(clickJs('[data-testid="style-detailed"]'))) === true &&
+            (await waitUntil(
+              'style persisted',
+              async () => {
+                const pub = (await assistant.webContents.executeJavaScript(
+                  `window.scout.settings.get()`
+                )) as { answerStyle?: string }
+                return pub.answerStyle === 'detailed'
+              },
+              4000
+            ))
+        )
+        await assistant.webContents.executeJavaScript(TYPE_JS('.composer-input', 'give me the long version'))
+        await assistant.webContents.executeJavaScript(clickJs('.composer-send'))
+        const relayState = hooks.relay.state
+        record(
+          'style.detailedSent',
+          await waitUntil(
+            'detailed request + finished answer',
+            async () =>
+              relayState.lastChat?.systemTail.includes('thorough') === true &&
+              ((await transcript()).match(/The answer is 42\./g) ?? []).length >= 2,
+            8000
+          ),
+          JSON.stringify(relayState.lastChat)
+        )
+
         // Exhausted quota renders the friendly message, not a raw HTTP error.
         hooks.relay.setQuotaExceeded(true)
         await assistant.webContents.executeJavaScript(findByTextJs('Clear'))

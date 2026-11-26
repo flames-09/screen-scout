@@ -334,10 +334,11 @@ function bootstrap(): void {
   // --- Update feed ------------------------------------------------------------
   // Served by the relay under /updates (same host as hosted mode, same
   // runtime override for the E2E mock). An empty relay URL disables updates.
-  // The feed currently points at the Windows installer, so on macOS the
-  // feature stays off rather than offering the wrong binary. Revisit when
-  // the manifest becomes per-platform.
-  const updateFeedUrl = (): string => (process.platform === 'win32' ? relayUrl() : '')
+  // The feed is per-platform ('win' | 'mac-arm64' | 'mac-x64'), so Windows
+  // and the macOS beta both check it; the client picks its own platform
+  // entry from the manifest.
+  const updateFeedUrl = (): string =>
+    process.platform === 'win32' || process.platform === 'darwin' ? relayUrl() : ''
   const updateStateSnapshot = (): { phase: UpdatePhase; appVersion: string; updatesAvailable: boolean } => ({
     phase: updateService.currentPhase(),
     appVersion: app.getVersion(),
@@ -354,6 +355,9 @@ function bootstrap(): void {
     baseUrl: updateFeedUrl,
     currentVersion: () => app.getVersion(),
     tempDir: () => app.getPath('temp'),
+    // Mac only: DMGs belong in ~/Downloads; Windows installs from temp so the
+    // silent NSIS flow never litters the user's Downloads folder.
+    ...(process.platform === 'darwin' ? { downloadsDir: () => app.getPath('downloads') } : {}),
     joinPath: (...parts) => path.join(...parts),
     fs: {
       createWriteStream: (p) => fs.createWriteStream(p),
@@ -961,8 +965,33 @@ function bootstrap(): void {
   ipcMain.handle('updates:check', () => updateService.check())
   ipcMain.handle('updates:download', () => updateService.download())
   ipcMain.handle('updates:install', async () => {
-    if (updateService.currentPhase().kind !== 'verified') {
+    const phase = updateService.currentPhase()
+    if (phase.kind !== 'verified') {
       return { ok: false, message: 'No verified update is ready to install.' }
+    }
+    if (process.platform === 'darwin') {
+      // Assisted mac update: unsigned apps cannot be replaced in place, so
+      // hand the verified DMG to the user for the standard drag-to-Apps step.
+      if (fs.existsSync(phase.filePath) === false) {
+        return { ok: false, message: 'The downloaded installer is gone. Check for updates and download it again.' }
+      }
+      const macOptions = {
+        type: 'info' as const,
+        title: 'Update downloaded',
+        message: `Screen Scout ${phase.version} is ready to install`,
+        detail:
+          'The DMG is in your Downloads folder. Open it and drag Screen Scout into Applications to finish the update.',
+        buttons: ['Show in Downloads', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      }
+      const macParent = assistantWindow ?? settingsWindow ?? null
+      const macChoice = macParent
+        ? await dialog.showMessageBox(macParent, macOptions)
+        : await dialog.showMessageBox(macOptions)
+      if (macChoice.response === 0) shell.showItemInFolder(phase.filePath)
+      return { ok: true }
     }
     const options = {
       type: 'question' as const,

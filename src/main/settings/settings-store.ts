@@ -31,7 +31,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   onboarded: false,
   authMethod: 'anonymous',
   authEmail: '',
-  nudgeDismissed: false
+  nudgeDismissed: false,
+  answerStyle: 'brief'
 }
 
 /** Minimal fs surface so unit tests can run this against a temp directory. */
@@ -140,6 +141,7 @@ export function sanitizeSettings(input: Record<string, unknown>): AppSettings {
     if (email.length <= 254) out.authEmail = email
   }
   if (typeof input.nudgeDismissed === 'boolean') out.nudgeDismissed = input.nudgeDismissed
+  if (input.answerStyle === 'brief' || input.answerStyle === 'detailed') out.answerStyle = input.answerStyle
   return out
 }
 

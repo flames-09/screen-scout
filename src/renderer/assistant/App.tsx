@@ -365,6 +365,17 @@ export function AssistantApp(): JSX.Element {
   }, [])
 
   // ---- Sending ----------------------------------------------------------------------
+  // Answer style: persisted app-wide; applies to the next send (main reads it
+  // from settings when building the request).
+  const saveAnswerStyle = useCallback((style: 'brief' | 'detailed'): void => {
+    void window.scout.settings
+      .save({ answerStyle: style })
+      .then((updated) => setSettings(updated))
+      .catch(() => {
+        /* the settings:changed push reconciles; nothing to surface here */
+      })
+  }, [])
+
   const performSend = useCallback(
     async (input: { text: string; imageDataUrl?: string; attachmentMeta?: Attachment; history: UIMessage[] }): Promise<void> => {
       const requestId = crypto.randomUUID()
@@ -670,6 +681,26 @@ export function AssistantApp(): JSX.Element {
             onCancel={() => handleNoticeChoice('cancel')}
           />
         )}
+        <div className="style-toggle" role="group" aria-label="Answer style">
+          <button
+            type="button"
+            className="style-pill"
+            data-testid="style-brief"
+            aria-pressed={settings?.answerStyle !== 'detailed'}
+            onClick={() => saveAnswerStyle('brief')}
+          >
+            Brief
+          </button>
+          <button
+            type="button"
+            className="style-pill"
+            data-testid="style-detailed"
+            aria-pressed={settings?.answerStyle === 'detailed'}
+            onClick={() => saveAnswerStyle('detailed')}
+          >
+            Detailed
+          </button>
+        </div>
         <Composer
           value={state.draft}
           onChange={(text) => dispatch({ type: 'draft', text })}

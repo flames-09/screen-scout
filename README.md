@@ -35,7 +35,7 @@ A Windows tray assistant for asking questions about what's on your screen: selec
 > The installer is unsigned, so Windows SmartScreen may warn on first launch — choose *More info → Run anyway*.
 
 > [!NOTE]
-> On macOS? An unsigned beta (arm64 + x64 `.dmg`/`.zip`) is built on every commit — grab it from the [Actions tab](https://github.com/flames-09/screen-scout/actions?query=branch%3Amain). Right-click the app and choose Open on first launch (Gatekeeper), then grant Screen Recording under System Settings, Privacy & Security when asked. Auto-update is Windows-only for now.
+> On macOS? An unsigned beta (arm64 + x64 `.dmg`/`.zip`) is built on every commit — grab it from the [Actions tab](https://github.com/flames-09/screen-scout/actions?query=branch%3Amain). Right-click the app and choose Open on first launch (Gatekeeper), then grant Screen Recording under System Settings, Privacy & Security when asked. Updates: the beta checks the update feed, downloads and verifies the right DMG into Downloads, then walks you through the drag-to-Applications step (silent in-place updates need code signing).
 
 ## What it does
 
@@ -130,7 +130,7 @@ The installer is unsigned. Click *More info → Run anyway*, or build it yoursel
 <details>
 <summary>Does it work on macOS or Linux?</summary>
 
-macOS: an early beta — CI builds an unsigned `.dmg`/`.zip` (arm64 + x64) on every commit (Actions tab). Right-click → Open on first launch, and grant Screen Recording in System Settings when prompted. Auto-update is Windows-only for now; macOS updates are manual downloads.
+macOS: an early beta — CI builds an unsigned `.dmg`/`.zip` (arm64 + x64) on every commit (Actions tab). Right-click → Open on first launch, and grant Screen Recording in System Settings when prompted. The beta checks for updates itself and lands the verified DMG in your Downloads; the final drag-to-Applications step stays manual until the app is code-signed.
 Linux: not yet.
 </details>
 

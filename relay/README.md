@@ -93,6 +93,8 @@ used by the E2E tests) or `node scripts/set-relay-url.mjs`.
 | `POST` | `/v1/chat/completions` | OpenAI-compatible streaming chat (`X-Device-Token`) |
 | `GET` | `/health` | Config sanity check |
 | `GET` | `/privacy`, `/terms` | Human-readable pages |
+| `GET` | `/updates/latest.json` | Update manifest (top-level = win entry + `platforms` map from D1) |
+| `GET` | `/updates/<file>` | 302 to the matching installer on GitHub Releases |
 
 ## Notes
 

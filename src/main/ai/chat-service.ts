@@ -8,7 +8,8 @@ import type {
   HostedQuotaInfo
 } from '@shared/types'
 import { HOSTED_MAX_IMAGE_BYTES, HOSTED_PUBLIC_MODEL } from '@shared/hosted'
-import { buildNimRequest, nimError, streamNimChat, type BuiltRequest, type FetchLike } from './nim-client'
+import { buildNimRequest, nimError, streamNimChat, DEFAULT_SYSTEM_PROMPT, type BuiltRequest, type FetchLike } from './nim-client'
+import { applyAnswerStyle } from './answer-style'
 import { HostedError, type HostedClient } from './hosted-client'
 import { TEST_IMAGE_DATA_URL } from '../capture/image-processing'
 
@@ -145,6 +146,7 @@ export class ChatService {
         ...(useHosted ? {} : { apiKey: apiKey ?? undefined }),
         ...(headers ? { headers } : {}),
         model: useHosted ? HOSTED_PUBLIC_MODEL : settings.model,
+        systemPrompt: applyAnswerStyle(DEFAULT_SYSTEM_PROMPT, settings.answerStyle),
         history: trimmedHistory,
         userText: text,
         imageDataUrl,

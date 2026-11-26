@@ -362,6 +362,35 @@
   background: var(--accent-dim);
 }
 
+/* answer style: compact segmented pills, right-aligned above the composer */
+.style-toggle {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.style-pill {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+  cursor: default;
+  transition: all var(--t-fast);
+}
+
+.style-pill:hover {
+  color: var(--accent);
+  border-color: var(--line-accent-faint);
+}
+
+.style-pill[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--line-accent-faint);
+}
+
 /* privacy notice: a quiet tinted card */
 .privacy-notice {
   display: flex;

@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   compareVersions,
   needsUpdate,
+  platformKey,
   resolveInstallerUrl,
+  selectPlatformManifest,
   UpdateService,
   type UpdateDeps,
   type UpdatePhase
@@ -281,5 +283,84 @@ describe('UpdateService.install', () => {
     expect(service.install()).toBe(false)
     expect(spawned.length).toBe(0)
     expect(service.currentPhase().kind).toBe('error')
+  })
+})
+
+describe('platform selection', () => {
+  it('maps platform + arch to feed keys', () => {
+    expect(platformKey('win32', 'x64')).toBe('win')
+    expect(platformKey('darwin', 'arm64')).toBe('mac-arm64')
+    expect(platformKey('darwin', 'x64')).toBe('mac-x64')
+    expect(platformKey('linux', 'x64')).toBe('win')
+  })
+
+  it('prefers the platforms entry, falls back to top-level on win, null otherwise', () => {
+    const entry = { version: '2.0.0', url: '/updates/mac.dmg', sha256: 'a'.repeat(64) }
+    const feed = { ...manifest(), platforms: { 'mac-arm64': entry } } as unknown as Parameters<typeof selectPlatformManifest>[0]
+    expect(selectPlatformManifest(feed, 'mac-arm64')).toEqual(entry)
+    expect(selectPlatformManifest(feed, 'win')).toEqual(feed)
+    expect(selectPlatformManifest(feed, 'mac-x64')).toBeNull()
+  })
+})
+
+describe('UpdateService on macOS (assisted DMG flow)', () => {
+  const macManifest = () => ({
+    version: '0.1.0',
+    url: '/updates/Screen-Scout-0.1.0-setup.exe',
+    sha256: INSTALLER_SHA,
+    sizeBytes: INSTALLER.length,
+    platforms: {
+      win: manifest(),
+      'mac-arm64': {
+        version: '9.9.9',
+        url: '/updates/Screen-Scout-9.9.9-mac-arm64.dmg',
+        sha256: INSTALLER_SHA,
+        sizeBytes: INSTALLER.length,
+        notes: 'mac update'
+      }
+    }
+  })
+
+  function makeMacDeps(): ReturnType<typeof makeDeps> {
+    const handle = makeDeps({
+      routes: [
+        {
+          match: (url) => url.endsWith('/updates/latest.json'),
+          respond: () => ({ status: 200, body: () => JSON.stringify(macManifest()) })
+        },
+        {
+          match: (url) => url.includes('/updates/Screen-Scout-9.9.9-mac-arm64.dmg'),
+          respond: () => ({ status: 200, body: () => INSTALLER })
+        }
+      ]
+    })
+    handle.deps.platformKey = () => 'mac-arm64'
+    handle.deps.downloadsDir = () => '/downloads-fake'
+    return handle
+  }
+
+  it('checks, downloads to Downloads, and verifies the platform dmg', async () => {
+    const { deps, phases, files } = makeMacDeps()
+    const service = new UpdateService(deps)
+    const phase = await service.check()
+    expect(phase.kind).toBe('available')
+    if (phase.kind === 'available') expect(phase.version).toBe('9.9.9')
+    await service.download()
+    expect(service.currentPhase().kind).toBe('verified')
+    const verified = service.currentPhase()
+    if (verified.kind === 'verified') {
+      expect(verified.filePath).toBe('/downloads-fake/Screen-Scout-9.9.9-mac-arm64.dmg')
+    }
+    expect(files.has('/downloads-fake/Screen-Scout-9.9.9-mac-arm64.dmg')).toBe(true)
+    expect(phases.some((p) => p.kind === 'downloading')).toBe(true)
+  })
+
+  it('stays quietly current when the feed has no build for this platform', async () => {
+    const { deps } = makeDeps()
+    deps.platformKey = () => 'mac-x64'
+    const service = new UpdateService(deps)
+    const phase = await service.check()
+    expect(phase.kind).toBe('current')
+    if (phase.kind === 'current') expect(phase.version).toBe('0.1.0')
   })
 })

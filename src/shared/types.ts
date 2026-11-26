@@ -129,6 +129,8 @@ export interface AppSettings {
   authEmail: string
   /** The existing-user "sign in with Google" banner was dismissed. */
   nudgeDismissed: boolean
+  /** Default answer length for chat replies: concise (3–4 sentences) or thorough. */
+  answerStyle: 'brief' | 'detailed'
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB of encoded image data

@@ -60,7 +60,9 @@ export const settingsSchema = z.object({
   /** Google account email, display only. Privileged: stripped from renderer patches. */
   authEmail: z.string().max(254).default(''),
   /** The existing-user Google nudge banner was dismissed. Privileged likewise. */
-  nudgeDismissed: z.boolean().default(false)
+  nudgeDismissed: z.boolean().default(false),
+  /** Answer length preference; 'brief' leads with 3–4-sentence answers. */
+  answerStyle: z.enum(['brief', 'detailed']).default('brief')
 })
 export type SettingsPayload = z.infer<typeof settingsSchema>
 
@@ -123,15 +125,24 @@ export const IMPORT_MAX_IMAGE_BYTES = 32 * 1024 * 1024
 /**
  * Update feed manifest served by the relay at /updates/latest.json. The
  * installer URL may be absolute or relative to the relay root; sha256 is the
- * lowercase hex digest of the installer file.
+ * lowercase hex digest of the installer file. The top-level fields describe
+ * the Windows build (legacy shape for old clients); `platforms` maps
+ * 'win' | 'mac-arm64' | 'mac-x64' to per-platform manifests.
  */
-export const updateManifestSchema = z.object({
+const updateManifestEntrySchema = z.object({
   version: z.string().trim().regex(/^v?\d+\.\d+\.\d+$/),
   url: z.string().trim().min(1).max(2048),
   sha256: z.string().trim().regex(/^[a-fA-F0-9]{64}$/),
-  sizeBytes: z.number().int().positive().max(400 * 1024 * 1024).optional(),
+  sizeBytes: z.number().int().positive().max(600 * 1024 * 1024).optional(),
   notes: z.string().trim().max(2000).optional(),
   pubDate: z.string().trim().max(40).optional()
+})
+export type UpdatePlatformManifest = z.infer<typeof updateManifestEntrySchema>
+
+export const updateManifestSchema = updateManifestEntrySchema.extend({
+  platforms: z.record(z.string().max(16), updateManifestEntrySchema).optional()
+}).refine((value) => !value.platforms || Object.keys(value.platforms).length <= 8, {
+  message: 'Too many platform entries'
 })
 export type UpdateManifest = z.infer<typeof updateManifestSchema>
 

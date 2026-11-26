@@ -15,7 +15,14 @@ import type { AddressInfo } from 'node:net'
 export interface E2eRelayState {
   quotaExceeded: boolean
   /** Last chat request the mock received (for assertions). */
-  lastChat: { model: string; hasImage: boolean; hasToken: boolean; messages: number } | null
+  lastChat: {
+    model: string
+    hasImage: boolean
+    hasToken: boolean
+    messages: number
+    /** Tail of the first system message (≤160 chars) — proves the style instruction rode along. */
+    systemTail: string
+  } | null
   /** Every path requested, in order. */
   requests: string[]
 }
@@ -163,11 +170,17 @@ export async function startE2eRelay(): Promise<E2eRelayHandle> {
       }
       try {
         const parsed = JSON.parse(raw) as { model?: unknown; messages?: unknown }
+        const first = Array.isArray(parsed.messages)
+          ? (parsed.messages[0] as { role?: unknown; content?: unknown } | undefined)
+          : undefined
+        const systemContent =
+          first && first.role === 'system' && typeof first.content === 'string' ? first.content : ''
         state.lastChat = {
           model: typeof parsed.model === 'string' ? parsed.model : '',
           hasImage: raw.includes('data:image/'),
           hasToken: Boolean(request.headers['x-device-token']),
-          messages: Array.isArray(parsed.messages) ? parsed.messages.length : 0
+          messages: Array.isArray(parsed.messages) ? parsed.messages.length : 0,
+          systemTail: systemContent.slice(-160)
         }
       } catch {
         state.lastChat = null
@@ -197,13 +210,16 @@ export async function startE2eRelay(): Promise<E2eRelayHandle> {
     // installer, so the E2E can exercise check → download → verified without
     // touching the network or running a real installer.
     if (url.pathname === '/updates/latest.json' && request.method === 'GET') {
-      json(response, 200, {
+      const winManifest = {
         version: '9.9.9',
         url: '/updates/Screen-Scout-9.9.9-setup.exe',
         sha256: E2E_INSTALLER_SHA,
         sizeBytes: E2E_INSTALLER.length,
         notes: 'e2e update'
-      })
+      }
+      // Same shape as the relay's per-platform feed: top-level = the win
+      // entry (back-compat for old clients), platforms map for new clients.
+      json(response, 200, { ...winManifest, platforms: { win: winManifest } })
       return
     }
 

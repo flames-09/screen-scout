@@ -3,19 +3,31 @@
  * Publishes a Screen Scout release to the relay's update feed (D1).
  *
  * The installer bytes live on GitHub Releases (free, no payment method —
- * R2 requires a card even on its free tier). This script only writes the
- * small manifest row the relay serves at /updates/latest.json:
+ * R2 requires a card even on its free tier). This script optionally uploads
+ * local build artifacts as release assets (--upload) and writes the small
+ * manifest rows the relay serves at /updates/latest.json:
  *
- *   r2 replaced by: D1 table `update_manifest` (single row, id = 1)
+ *   D1 table `update_manifest` — one row per platform
+ *   ('win' | 'mac-arm64' | 'mac-x64').
  *
- * Usage (from the repo root, after `npm run dist` AND after the installer
- * has been attached to the matching GitHub release):
+ * Usage (from the repo root):
+ *
+ *   # Windows only (legacy default: dist/Screen-Scout-<v>-setup.exe):
  *   node scripts/upload-update.mjs [--url <download-url>] [--notes "..."]
  *
- * `--url` defaults to the GitHub Releases download URL for the current
- * package.json version. The script HEAD-checks the URL (size must match the
- * local exe) before publishing, so a mistyped link cannot brick the feed.
- * Requires `npx wrangler login` (or CLOUDFLARE_API_TOKEN) with D1 access.
+ *   # All platforms (with upload of the files to the release):
+ *   node scripts/upload-update.mjs \
+ *     --platform win --file dist/Screen-Scout-0.1.2-setup.exe \
+ *     --platform mac-arm64 --file dist/Screen-Scout-0.1.2-mac-arm64.dmg \
+ *     --platform mac-x64 --file dist/Screen-Scout-0.1.2-mac-x64.dmg \
+ *     --upload [--notes "..."]
+ *
+ * `--upload` attaches each --file to the v<version> GitHub release first
+ * (needs GH_TOKEN with repo scope) — CI produces artifacts, not release
+ * assets, so this replaces dragging big DMGs by hand. Every platform URL is
+ * HEAD-checked (size must match the local file) before publishing, so a
+ * mistyped link cannot brick the feed. Requires `npx wrangler login` (or
+ * CLOUDFLARE_API_TOKEN) with D1 access.
  */
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -28,47 +40,178 @@ const root = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const version = pkg.version
 const DB_NAME = 'screen-scout-relay'
+const REPO = 'flames-09/screen-scout'
 
-const urlArg = process.argv.indexOf('--url')
-const notesArg = process.argv.indexOf('--notes')
-const exeName = `Screen-Scout-${version}-setup.exe`
-const defaultUrl =
-  `https://github.com/flames-09/screen-scout/releases/download/v${version}/${exeName}`
-const downloadUrl = urlArg !== -1 ? process.argv[urlArg + 1] : defaultUrl
+const PLATFORMS = ['win', 'mac-arm64', 'mac-x64']
+/** Dist filename per platform (electron-builder artifactName conventions). */
+const defaultFileName = (platform) =>
+  platform === 'win'
+    ? `Screen-Scout-${version}-setup.exe`
+    : `Screen-Scout-${version}-mac-${platform.replace('mac-', '')}.dmg`
+
+// ---- Argument parsing -------------------------------------------------------
+const argv = process.argv
+const argValue = (flag) => {
+  const idx = argv.indexOf(flag)
+  return idx !== -1 ? argv[idx + 1] : undefined
+}
+const upload = argv.includes('--upload')
+const notesArg = argv.indexOf('--notes')
+const urlArg = argv.indexOf('--url')
+
 // The app validates the manifest with `notes` max 2000 — an over-long note
 // would make EVERY client reject the feed, so truncate rather than publish.
 const MAX_NOTES_CHARS = 2000
-const rawNotes = notesArg !== -1 ? process.argv[notesArg + 1] : ''
+const rawNotesValue = notesArg !== -1 ? argv[notesArg + 1] : ''
+const rawNotes = typeof rawNotesValue === 'string' ? rawNotesValue : ''
 const notes = rawNotes.length > MAX_NOTES_CHARS ? `${rawNotes.slice(0, MAX_NOTES_CHARS - 1)}…` : rawNotes
 if (notes !== rawNotes) {
   console.warn(`--notes truncated to ${MAX_NOTES_CHARS} characters (app schema limit).`)
 }
 
-const exePath = join(root, 'dist', exeName)
-if (!existsSync(exePath)) {
-  console.error(`Missing ${exePath}. Run "npm run dist" first.`)
-  process.exit(1)
+/** [{ platform, filePath }] — strict pairs: --file must directly follow its --platform. */
+const entries = []
+for (let i = 2; i < argv.length; i++) {
+  const token = argv[i]
+  if (token === '--platform') {
+    const platform = argv[i + 1]
+    if (!PLATFORMS.includes(platform)) {
+      console.error(`Unknown platform "${platform}". Expected one of: ${PLATFORMS.join(', ')}.`)
+      process.exit(1)
+    }
+    let filePath
+    if (argv[i + 2] === '--file') {
+      filePath = argv[i + 3]
+      if (typeof filePath !== 'string' || filePath === '') {
+        console.error('--file needs a path.')
+        process.exit(1)
+      }
+      i += 2 // consume --file + path
+    } else {
+      filePath = join(root, 'dist', defaultFileName(platform))
+    }
+    entries.push({ platform, filePath: resolve(root, filePath) })
+    i++ // consume the platform value
+  } else if (token === '--file') {
+    console.error('--file must directly follow its --platform <p>.')
+    process.exit(1)
+  }
+}
+if (entries.length === 0) {
+  // Legacy single-platform default: the Windows installer.
+  const exeName = `Screen-Scout-${version}-setup.exe`
+  const overrideUrl = urlArg !== -1 ? argv[urlArg + 1] : undefined
+  entries.push({
+    platform: 'win',
+    filePath: join(root, 'dist', exeName),
+    ...(overrideUrl ? { urlOverride: overrideUrl } : {})
+  })
+}
+{
+  const seen = new Set()
+  for (const entry of entries) {
+    if (seen.has(entry.platform)) {
+      console.error(`Platform "${entry.platform}" listed more than once.`)
+      process.exit(1)
+    }
+    seen.add(entry.platform)
+  }
 }
 
-const installer = readFileSync(exePath)
-const sha256 = createHash('sha256').update(installer).digest('hex')
+const sleep = (ms) => new Promise((resolveTimeout) => setTimeout(resolveTimeout, ms))
 
-// Verify the hosted asset before pointing clients at it.
-const head = await fetch(downloadUrl, { method: 'HEAD', redirect: 'follow' })
-if (!head.ok) {
-  console.error(`Download URL did not check out (HTTP ${head.status}): ${downloadUrl}`)
-  console.error('Attach the installer to the GitHub release first, or pass --url.')
-  process.exit(1)
+function sha256Of(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex')
 }
-const remoteLength = Number(head.headers.get('content-length') ?? 0)
-if (remoteLength && remoteLength !== installer.length) {
-  console.error(
-    `Remote asset is ${remoteLength} bytes but the local exe is ${installer.length} — ` +
-      'the release asset does not match this build. Re-upload it first.'
+
+// ---- Optional: attach the files to the GitHub release -----------------------
+function githubHeaders(token, extra = {}) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...extra
+  }
+}
+
+async function uploadToRelease(token, filePath, assetName) {
+  const buf = readFileSync(filePath)
+  const relRes = await fetch(`https://api.github.com/repos/${REPO}/releases/tags/v${version}`, {
+    headers: githubHeaders(token)
+  })
+  if (!relRes.ok) {
+    console.error(`Release v${version} not found (HTTP ${relRes.status}). Create it first.`)
+    process.exit(1)
+  }
+  const release = (await relRes.json())
+  const uploadRes = await fetch(
+    `https://uploads.github.com/repos/${REPO}/releases/${release.id}/assets?name=${encodeURIComponent(assetName)}`,
+    {
+      method: 'POST',
+      headers: githubHeaders(token, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(buf.length)
+      }),
+      body: buf
+    }
   )
+  if (!uploadRes.ok) {
+    console.error(`Asset upload failed (HTTP ${uploadRes.status}): ${(await uploadRes.text()).slice(0, 400)}`)
+    process.exit(1)
+  }
+  console.log(`  uploaded ${assetName} (${(buf.length / 1024 / 1024).toFixed(1)} MB)`)
+}
+
+// ---- Build + verify each platform entry -------------------------------------
+const GH_TOKEN = process.env.GH_TOKEN
+if (upload && !GH_TOKEN) {
+  console.error('--upload requires GH_TOKEN (a PAT with repo contents access).')
   process.exit(1)
 }
 
+const rows = []
+for (const entry of entries) {
+  const { platform, filePath } = entry
+  if (!existsSync(filePath)) {
+    console.error(`Missing ${filePath}. Build it first (npm run dist / CI mac artifact).`)
+    process.exit(1)
+  }
+  const fileName = filePath.split(/[\\/]/).pop()
+  const downloadUrl =
+    entry.urlOverride ??
+    `https://github.com/${REPO}/releases/download/v${version}/${encodeURIComponent(fileName)}`
+
+  if (upload) {
+    await uploadToRelease(GH_TOKEN, filePath, fileName)
+  }
+
+  // Verify the hosted asset before pointing clients at it. Freshly uploaded
+  // assets can take a few seconds to propagate, hence the retries.
+  let head = null
+  for (let attempt = 1; attempt <= (upload ? 6 : 1); attempt++) {
+    head = await fetch(downloadUrl, { method: 'HEAD', redirect: 'follow' })
+    if (head.ok) break
+    if (attempt < (upload ? 6 : 1)) await sleep(5000)
+  }
+  if (!head || !head.ok) {
+    console.error(`Download URL did not check out (HTTP ${head ? head.status : '?'}): ${downloadUrl}`)
+    console.error('Attach the asset to the GitHub release first (or pass --upload).')
+    process.exit(1)
+  }
+  const localSize = readFileSync(filePath).length
+  const remoteLength = Number(head.headers.get('content-length') ?? 0)
+  if (remoteLength && remoteLength !== localSize) {
+    console.error(
+      `Remote asset is ${remoteLength} bytes but the local file is ${localSize} — ` +
+        'the release asset does not match this build. Re-upload it first.'
+    )
+    process.exit(1)
+  }
+
+  rows.push({ platform, version, url: downloadUrl, sha256: sha256Of(filePath), size: localSize })
+}
+
+// ---- Write the manifest rows (one per platform, conflict-safe) --------------
 function wrangler(args) {
   // Run the local wrangler binary directly via node (no shell): a shell wrapper
   // can swallow wrangler's non-zero exit code, which once made a failed R2
@@ -85,9 +228,19 @@ writeFileSync(
   manifestPath,
   [
     '-- generated by scripts/upload-update.mjs',
-    'DELETE FROM update_manifest;',
-    'INSERT INTO update_manifest (id, version, url, sha256, size_bytes, notes, pub_date)',
-    `VALUES (1, ${sql(version)}, ${sql(downloadUrl)}, ${sql(sha256)}, ${installer.length}, ${sql(notes)}, ${sql(new Date().toISOString())});`,
+    ...rows.map(
+      (row) => [
+        'INSERT INTO update_manifest (platform, version, url, sha256, size_bytes, notes, pub_date)',
+        `VALUES (${sql(row.platform)}, ${sql(row.version)}, ${sql(row.url)}, ${sql(row.sha256)}, ${row.size}, ${sql(notes)}, ${sql(new Date().toISOString())})`,
+        'ON CONFLICT(platform) DO UPDATE SET',
+        '  version = excluded.version,',
+        '  url = excluded.url,',
+        '  sha256 = excluded.sha256,',
+        '  size_bytes = excluded.size_bytes,',
+        '  notes = excluded.notes,',
+        '  pub_date = excluded.pub_date;'
+      ].join('\n')
+    ),
     ''
   ].join('\n')
 )
@@ -95,10 +248,12 @@ writeFileSync(
 try {
   wrangler(['d1', 'execute', DB_NAME, '--remote', '-y', '--file', manifestPath])
   console.log(`\nPublished ${version}:`)
-  console.log(`  url     ${downloadUrl}`)
-  console.log(`  sha256  ${sha256}`)
-  console.log(`  size    ${(installer.length / 1024 / 1024).toFixed(1)} MB`)
-  console.log(`  feed    /updates/latest.json (served from D1)`)
+  for (const row of rows) {
+    console.log(`  ${row.platform.padEnd(10)} ${row.url}`)
+    console.log(`  ${' '.repeat(10)} sha256 ${row.sha256}`)
+    console.log(`  ${' '.repeat(10)} size   ${(row.size / 1024 / 1024).toFixed(1)} MB`)
+  }
+  console.log(`  feed     /updates/latest.json (served from D1)`)
 } finally {
   try {
     unlinkSync(manifestPath)

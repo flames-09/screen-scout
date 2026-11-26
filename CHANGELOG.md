@@ -6,12 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com); versions follow
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-11-26
+
 ### Added
 
-- macOS beta: menu-bar tray (template icon, hidden Dock), desktopCapturer capture
-  with a Screen Recording permission check, Edit-menu shortcuts in text fields,
-  and unsigned dmg/zip packaging (arm64 + x64) built by CI. Auto-update remains
-  Windows-only until the update feed is per-platform.
+- **Answer style toggle** in the assistant: Brief (default) keeps answers to a
+  few sentences, Detailed restores thorough markdown answers. Applies to both
+  the hosted free tier and your own API key; the choice is remembered.
+- **macOS beta updates**: the app now checks the update feed on macOS too,
+  downloads and sha256-verifies the right DMG for its architecture into
+  Downloads, and hands off to Finder with drag-to-Applications instructions
+  (unsigned apps cannot be replaced silently). The update feed is per-platform
+  (`win` / `mac-arm64` / `mac-x64`); existing Windows clients keep working
+  unchanged.
+
+### Changed
+
+- "Copy response" proven end-to-end: the button on every answer copies the
+  raw markdown of the response to the clipboard (verified in the E2E suite).
 
 ## [0.1.1] — 2026-11-24
 
@@ -22,6 +34,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com); versions follow
   each question: GPT-OSS 120B on Groq for text questions, Llama 4 Scout on
   Cloudflare for screenshots (previously a static label).
 
+[0.1.2]: https://github.com/flames-09/screen-scout/releases/tag/v0.1.2
 [0.1.1]: https://github.com/flames-09/screen-scout/releases/tag/v0.1.1
 
 ## [0.1.0] — 2026-11-07
@@ -62,7 +75,7 @@ Initial public build.
   dry-run) and a scheduled relay health monitor.
 - Automatic updates: the app polls the relay's update feed, downloads the
   installer, verifies its SHA-256, and offers a confirmed install-and-restart.
-  Operators publish releases with `node scripts/upload-update.mjs` (R2-backed).
+  Operators publish releases with `node scripts/upload-update.mjs` (D1-backed manifest, assets on GitHub Releases).
 - Crash handling and rotating local logs (no content, no keys, no ids), plus
   "Open log folder" and "Copy diagnostics" in Settings → Privacy.
 - Relay operations: staging environment, kill switch (`HOSTED_ENABLED`),

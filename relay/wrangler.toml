@@ -35,10 +35,12 @@ HOSTED_ENABLED = "true"
 # Oldest app version the hosted service accepts; "0.0.0" disables the gate.
 MIN_APP_VERSION = "0.0.0"
 
-# Update feed: the manifest lives in D1 (table update_manifest, id = 1) and
-# points at the installer download on GitHub Releases (free, no payment
-# method). /updates/<file> 302-redirects there. Publish with:
-#   node scripts/upload-update.mjs --url <github-download-url> --notes "..."
+# Update feed: the manifest lives in D1 (table update_manifest, one row per
+# platform: 'win' | 'mac-arm64' | 'mac-x64') and points at the installer
+# downloads on GitHub Releases (free, no payment method). /updates/<file>
+# 302-redirects to the matching asset. Publish with:
+#   node scripts/upload-update.mjs --platform win --file dist/<exe> \
+#     --platform mac-arm64 --file dist/<dmg> [--upload] --notes "..."
 # No R2 binding is needed; R2 requires a payment method even on its free tier.
 
 [[d1_databases]]
