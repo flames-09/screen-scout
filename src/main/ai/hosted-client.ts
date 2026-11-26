@@ -387,4 +387,30 @@ export class HostedClient {
       }
     }
   }
+
+  /**
+   * Deletes every stored row the relay keeps for this device or account
+   * (the devices row plus all usage counters), then clears the local token.
+   * Raises HostedError on failure so the UI can show a retryable message.
+   */
+  async deleteAccount(signal?: AbortSignal): Promise<{ ok: true; kind: 'device' | 'account' }> {
+    if (!this.isAvailable()) {
+      throw new HostedError('unavailable', 'Hosted mode is not configured in this build.')
+    }
+    const token = await this.ensureToken(false, signal)
+    const response = await this.request(
+      '/v1/account/delete',
+      { method: 'POST', headers: { 'x-device-token': token } },
+      signal
+    )
+    if (response.status === 401) {
+      throw new HostedError('unauthorized', 'Your session expired. Try again.')
+    }
+    if (!response.ok) {
+      throw new HostedError('bad-response', `The relay refused the deletion (status ${response.status}).`)
+    }
+    this.deps.clearToken()
+    const parsed = (await response.json().catch(() => ({}))) as { kind?: unknown }
+    return { ok: true, kind: parsed.kind === 'account' ? 'account' : 'device' }
+  }
 }

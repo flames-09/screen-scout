@@ -339,3 +339,15 @@ describe('served model tracking', () => {
     expect(state.servedProvider).toBeNull()
   })
 })
+
+describe('isCrisisDraft', () => {
+  it('matches self-harm phrasing and ignores normal questions', async () => {
+    const { isCrisisDraft } = await import('../src/renderer/assistant/chat-state')
+    expect(isCrisisDraft('i want to kill myself')).toBe(true)
+    expect(isCrisisDraft('thinking about self-harm again')).toBe(true)
+    expect(isCrisisDraft('I have no reason to live')).toBe(true)
+    expect(isCrisisDraft('how do I kill this background process')).toBe(false)
+    expect(isCrisisDraft('what is my screen resolution')).toBe(false)
+    expect(isCrisisDraft('')).toBe(false)
+  })
+})

@@ -242,3 +242,43 @@ describe('google account quotas', () => {
     })
   })
 })
+
+describe('deleteDeviceData', () => {
+  class FakeD1 {
+    usage = new Map<string, { count: number; expiresAt: number }>()
+    devices = new Map<string, unknown>()
+    prepare(sql: string) {
+      return {
+        bind: (...params: unknown[]) => ({
+          run: async () => {
+            if (sql.startsWith('DELETE FROM usage')) {
+              const [lo, hi] = params as [string, string]
+              for (const key of [...this.usage.keys()]) if (key >= lo && key < hi) this.usage.delete(key)
+            } else if (sql.startsWith('DELETE FROM devices')) {
+              this.devices.delete(params[0] as string)
+            }
+          }
+        })
+      }
+    }
+  }
+
+  it('removes the devices row and only that id usage buckets', async () => {
+    const { deleteDeviceData } = await import('../relay/src/quota')
+    const db = new FakeD1()
+    db.devices.set('dev1111111111111111', {})
+    db.devices.set('dev2222222222222222', {})
+    db.usage.set('dev:dev1111111111111111:day:2026-11-25', { count: 3, expiresAt: 1 })
+    db.usage.set('dev:dev1111111111111111:slot:123', { count: 1, expiresAt: 1 })
+    db.usage.set('dev:dev2222222222222222:day:2026-11-25', { count: 5, expiresAt: 1 })
+    db.usage.set('global:groq:day:2026-11-25', { count: 9, expiresAt: 1 })
+
+    await deleteDeviceData(db as unknown as Parameters<typeof deleteDeviceData>[0], 'dev1111111111111111')
+
+    expect(db.devices.has('dev1111111111111111')).toBe(false)
+    expect(db.devices.has('dev2222222222222222')).toBe(true)
+    expect(db.usage.size).toBe(2)
+    expect(db.usage.has('dev:dev2222222222222222:day:2026-11-25')).toBe(true)
+    expect(db.usage.has('global:groq:day:2026-11-25')).toBe(true)
+  })
+})

@@ -87,6 +87,19 @@ export class D1QuotaStore implements QuotaStore {
   }
 }
 
+/**
+ * Deletes every stored row tied to one device or account id: its devices
+ * row and all of its usage counters. Used by account deletion.
+ */
+export async function deleteDeviceData(db: D1Database, deviceId: string): Promise<void> {
+  const prefix = `dev:${deviceId}:`
+  // Range scan instead of LIKE: device ids are base64url and may contain
+  // '_', which is a LIKE wildcard. ';' is the character right after ':'.
+  const upper = `dev:${deviceId};`
+  await db.prepare('DELETE FROM usage WHERE bucket >= ? AND bucket < ?').bind(prefix, upper).run()
+  await db.prepare('DELETE FROM devices WHERE device_id = ?').bind(deviceId).run()
+}
+
 function deviceDayKey(deviceId: string, now: number): string {
   return `dev:${deviceId}:${dayBucket(now)}`
 }

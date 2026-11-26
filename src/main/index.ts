@@ -801,6 +801,24 @@ function bootstrap(): void {
     return { ok: true }
   })
 
+  // Account deletion: removes the device/account row and every usage counter
+  // the relay stores for this id, then signs out locally. The Google account
+  // itself is never touched.
+  ipcMain.handle('hosted:delete-account', async () => {
+    try {
+      const result = await hostedClient.deleteAccount()
+      settingsStore.update({ authMethod: 'anonymous', authEmail: '' })
+      googleAuth.clear()
+      secrets.removeGoogleRefreshToken()
+      hostedClient.resetAuth()
+      void chatService.refreshQuota()
+      pushSettingsToAssistant()
+      return { ok: true, kind: result.kind }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Deletion failed.' }
+    }
+  })
+
   ipcMain.handle('hosted:onboard-byok', () => {
     settingsStore.update({ onboarded: true, accessMode: 'byok' })
     pushSettingsToAssistant()

@@ -331,3 +331,27 @@ describe('HostedClient resetAuth + relay wire shapes', () => {
     }
   })
 })
+
+describe('deleteAccount', () => {
+  it('posts to /v1/account/delete, clears the token, and reports the kind', async () => {
+    const token = futureToken()
+    const { client, store } = makeClient()
+    store.token = token
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true, kind: 'account' }))
+
+    const result = await client.deleteAccount()
+
+    expect(result).toEqual({ ok: true, kind: 'account' })
+    expect(store.clears).toBe(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://relay.test/v1/account/delete')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>)['x-device-token']).toBe(token)
+  })
+
+  it('raises HostedError when the relay refuses', async () => {
+    const { client } = makeClient()
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, {}))
+    await expect(client.deleteAccount()).rejects.toBeInstanceOf(HostedError)
+  })
+})

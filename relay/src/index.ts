@@ -29,6 +29,7 @@ import {
   D1QuotaStore,
   accountLimitsFromEnv,
   accountQuotaSnapshot,
+  deleteDeviceData,
   limitsFromEnv,
   quotaSnapshot,
   releaseAccountQuestion,
@@ -42,7 +43,7 @@ import {
   type AccountQuotaSnapshot,
   type QuotaSnapshot
 } from './quota'
-import { landingPage, privacyPage, termsPage } from './pages'
+import { guidelinesPage, landingPage, privacyPage, termsPage } from './pages'
 import { parseChatBody, requestHasImage, routeProviders, tryGroq, tryNvidia, tryWorkersAi, type ChatRequestBody } from './upstream'
 import type { Env, ExecutionContextLike, ScheduledEventLike } from './types'
 
@@ -323,6 +324,20 @@ async function handleQuota(request: Request, env: Env): Promise<Response> {
   }
   const snapshot = await quotaSnapshot(store, auth.deviceId, limitsFromEnv(env))
   return json(200, { quota: snapshot }, quotaHeaders(snapshot))
+}
+
+/**
+ * Account deletion. Removes every stored row tied to the token's id — the
+ * devices row plus all of its usage counters — and reports which kind of id
+ * it was. The HMAC token itself is stateless and simply expires; after this
+ * call its id owns no data on the relay.
+ */
+async function handleAccountDelete(request: Request, env: Env): Promise<Response> {
+  const auth = await authenticate(request, env)
+  if (auth instanceof Response) return auth
+  await deleteDeviceData(env.DB, auth.deviceId)
+  const kind = isAccountDeviceId(auth.deviceId) ? 'account' : 'device'
+  return json(200, { ok: true, kind })
 }
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
@@ -621,6 +636,7 @@ export default {
     if (request.method === 'GET' && path === '/') return landingPage()
     if (request.method === 'GET' && path === '/privacy') return privacyPage()
     if (request.method === 'GET' && path === '/terms') return termsPage()
+    if (request.method === 'GET' && path === '/guidelines') return guidelinesPage()
     if (request.method === 'GET' && path === '/health') {
       return json(200, {
         ok: true,
@@ -648,6 +664,7 @@ export default {
     if (path === '/v1/auth/google' && request.method === 'POST') return handleGoogleAuth(request, env)
     if (path === '/v1/quota' && request.method === 'GET') return handleQuota(request, env)
     if (path === '/v1/chat/completions' && request.method === 'POST') return handleChat(request, env)
+    if (path === '/v1/account/delete' && request.method === 'POST') return handleAccountDelete(request, env)
 
     return apiError(404, 'not-found', 'Unknown relay endpoint.')
   },

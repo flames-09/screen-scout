@@ -8,6 +8,7 @@ import {
   effectivePrompt,
   historyForContext,
   initialChatState,
+  isCrisisDraft,
   isBusy,
   isRequestActive,
   type Attachment
@@ -701,6 +702,13 @@ export function AssistantApp(): JSX.Element {
             Detailed
           </button>
         </div>
+        {isCrisisDraft(state.draft) && (
+          <div className="crisis-notice" role="status">
+            If you&apos;re thinking about harming yourself, please reach out now — call or text{' '}
+            <strong>988</strong> (US/Canada), or find your local helpline at{' '}
+            <strong>findahelpline.com</strong>. In immediate danger, contact local emergency services.
+          </div>
+        )}
         <Composer
           value={state.draft}
           onChange={(text) => dispatch({ type: 'draft', text })}

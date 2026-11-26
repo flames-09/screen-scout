@@ -26,7 +26,10 @@ export const DEFAULT_SYSTEM_PROMPT = [
   '- Explain, do not just describe: if the user asks why something happens or what to do next, give the reasoning and concrete next steps.',
   '- If something is cut off, blurry, or not visible, say what you can see and state plainly what you cannot.',
   '- Never claim to have interacted with the computer beyond what the screenshot shows, and never invent UI elements, buttons, or files that are not visible.',
-  '- Reply in the language the question is written in. Use markdown sparingly: short bullet lists where they help, no headers for short answers.'
+  '- Reply in the language the question is written in. Use markdown sparingly: short bullet lists where they help, no headers for short answers.',
+  '',
+  'Safety:',
+  '- If a message suggests the user may be in crisis or thinking about harming themselves, briefly and kindly set the screenshot task aside. Encourage them to reach out for support and mention: local emergency services; the 988 Suicide & Crisis Lifeline (call or text 988, US/Canada); or https://findahelpline.com to find a local helpline anywhere in the world. Keep it short, warm, and non-judgmental.'
 ].join('\n')
 
 export interface NimRequestOptions {

@@ -281,3 +281,14 @@ export function historyForContext(messages: UIMessage[]): Array<{ role: 'user' |
       content: m.content
     }))
 }
+
+const CRISIS_PATTERN =
+  /\b(kill (?:myself|me)|suicid\w*|self[- ]?harm\w*|end (?:my|it) (?:life|all)|hurt(?:ing)? myself|want to die|don'?t want to (?:live|be here)|no reason to live)\b/i
+
+/**
+ * True when the composer draft mentions a crisis, so the UI can surface
+ * crisis resources before the question is even sent. Local-only check.
+ */
+export function isCrisisDraft(text: string): boolean {
+  return CRISIS_PATTERN.test(text)
+}

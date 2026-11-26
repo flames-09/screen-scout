@@ -99,6 +99,10 @@ const scoutApi = {
     hostedSignOut(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke('hosted:auth-signout')
     },
+    /** Deletes all relay-side data for this device/account, then signs out. */
+    hostedDeleteAccount(): Promise<{ ok: boolean; kind?: 'device' | 'account'; message?: string }> {
+      return ipcRenderer.invoke('hosted:delete-account')
+    },
     /** Onboarding choice: use my own API key instead (marks onboarding done). */
     hostedOnboardWithOwnKey(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke('hosted:onboard-byok')

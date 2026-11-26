@@ -404,6 +404,30 @@ export function SettingsApp(): JSX.Element {
     }
   }, [load])
 
+  // Removes the account (or device) record and all usage counters from the
+  // relay, then signs out. Nothing is deleted from the Google account itself.
+  const handleDeleteAccount = useCallback(async (): Promise<void> => {
+    if (
+      !window.confirm(
+        'Delete all data the relay stores for this account — the account record and every usage counter? This cannot be undone.'
+      )
+    ) {
+      return
+    }
+    setAccountMessage(null)
+    try {
+      const result = await window.scout.settings.hostedDeleteAccount()
+      if (result.ok) {
+        setAccountMessage('Deleted. The relay no longer stores anything for this account.')
+        load()
+      } else {
+        setAccountMessage(result.message ?? 'Deletion failed.')
+      }
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : 'Deletion failed.')
+    }
+  }, [load])
+
   const quotaSummary = quota
     ? quota.kind === 'account'
       ? `${quota.quota.imagesRemaining} of ${quota.quota.imagesLimit} screenshots and ${quota.quota.chatsRemaining} of ${quota.quota.chatsLimit} chats left today`
@@ -517,6 +541,32 @@ export function SettingsApp(): JSX.Element {
                     Sign in with Google
                   </button>
                 )}
+              </div>
+            )}
+            {settings.hostedAvailable && (
+              <div className="account-row">
+                <span className="account-email">
+                  <a
+                    href="https://screen-scout-relay.flamesrise09.workers.dev/guidelines"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      void window.scout.app.openExternal(
+                        'https://screen-scout-relay.flamesrise09.workers.dev/guidelines'
+                      )
+                    }}
+                  >
+                    Safety guidelines
+                  </a>
+                  {' · includes crisis resources'}
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void handleDeleteAccount()}
+                  title="Delete the account/device record and all usage counters stored on the relay"
+                >
+                  Delete my data on the relay
+                </button>
               </div>
             )}
             {accountMessage && (
