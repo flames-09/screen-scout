@@ -69,6 +69,9 @@ function makeDeps(overrides: {
     baseUrl: () => overrides.baseUrl ?? 'https://relay.test',
     currentVersion: () => overrides.currentVersion ?? '0.1.0',
     tempDir: () => '/tmp-fake',
+    // Pin the platform so the default (win-shape) fixtures pass on any OS —
+    // the mac-specific suites override this explicitly below.
+    platformKey: () => 'win',
     joinPath: (...parts) => parts.join('/'),
     fs: {
       createWriteStream: (p) => {
