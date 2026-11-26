@@ -89,15 +89,52 @@ export class D1QuotaStore implements QuotaStore {
 
 /**
  * Deletes every stored row tied to one device or account id: its devices
- * row and all of its usage counters. Used by account deletion.
+ * row (device ids only — the Google flow never inserts one) and all of its
+ * usage counters. Device ids additionally get a 48h tombstone so their
+ * counters cannot be silently recreated by a still-valid token; a fresh,
+ * IP-throttled /v1/register explicitly reclaims the id via clearDeviceBurn.
  */
-export async function deleteDeviceData(db: D1Database, deviceId: string): Promise<void> {
+export async function deleteDeviceData(db: D1Database, deviceId: string, now = Date.now()): Promise<void> {
+  if (deviceId.startsWith('acct:')) {
+    // Google-account ids own only account counters (bucket keys
+    // `acct:<bare>:…`). No devices row and no tombstone: the id is
+    // deterministic from the Google subject, so re-signing-in simply starts
+    // a fresh empty record (sign-ins are IP-throttled).
+    const bare = deviceId.slice(5)
+    const prefix = `acct:${bare}:`
+    // Range scan instead of LIKE: ';' is the character right after ':'.
+    const upper = `acct:${bare};`
+    await db.batch([db.prepare('DELETE FROM usage WHERE bucket >= ? AND bucket < ?').bind(prefix, upper)])
+    return
+  }
   const prefix = `dev:${deviceId}:`
   // Range scan instead of LIKE: device ids are base64url and may contain
   // '_', which is a LIKE wildcard. ';' is the character right after ':'.
   const upper = `dev:${deviceId};`
-  await db.prepare('DELETE FROM usage WHERE bucket >= ? AND bucket < ?').bind(prefix, upper).run()
-  await db.prepare('DELETE FROM devices WHERE device_id = ?').bind(deviceId).run()
+  await db.batch([
+    db.prepare('DELETE FROM usage WHERE bucket >= ? AND bucket < ?').bind(prefix, upper),
+    db.prepare('DELETE FROM devices WHERE device_id = ?').bind(deviceId),
+    db
+      .prepare(
+        `INSERT INTO usage (bucket, count, expires_at) VALUES (?, 1, ?)
+         ON CONFLICT(bucket) DO UPDATE SET count = 1, expires_at = excluded.expires_at`
+      )
+      .bind(`burn:${deviceId}`, now + 2 * 24 * HOUR_MS)
+  ])
+}
+
+/** True while a device id's post-deletion tombstone is active. */
+export async function isDeviceBurned(db: D1Database, deviceId: string, now = Date.now()): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT count FROM usage WHERE bucket = ? AND expires_at > ?')
+    .bind(`burn:${deviceId}`, now)
+    .first<{ count: number }>()
+  return row !== null
+}
+
+/** A fresh, IP-throttled registration explicitly reclaims a deleted id. */
+export async function clearDeviceBurn(db: D1Database, deviceId: string): Promise<void> {
+  await db.prepare('DELETE FROM usage WHERE bucket = ?').bind(`burn:${deviceId}`).run()
 }
 
 function deviceDayKey(deviceId: string, now: number): string {
@@ -212,6 +249,18 @@ export async function reserveRegistration(
   now = Date.now()
 ): Promise<boolean> {
   const key = `reg:${ip}:${dayBucket(now)}`
+  const count = await store.incrementIfBelow(key, limit, now + 2 * 24 * HOUR_MS)
+  return count !== null
+}
+
+/** Per-IP deletion throttle (stops quota-reset farming via the delete endpoint). */
+export async function reserveDeletion(
+  store: QuotaStore,
+  ip: string,
+  limit: number,
+  now = Date.now()
+): Promise<boolean> {
+  const key = `del:${ip}:${dayBucket(now)}`
   const count = await store.incrementIfBelow(key, limit, now + 2 * 24 * HOUR_MS)
   return count !== null
 }

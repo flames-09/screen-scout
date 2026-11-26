@@ -56,6 +56,8 @@ export interface Env {
   GLOBAL_NVIDIA_PER_DAY?: string
   MAX_BODY_BYTES: string
   REGISTRATIONS_PER_IP_PER_DAY: string
+  /** Per-IP/day cap on account deletions (default 3; stops quota-reset farming). */
+  DELETES_PER_IP_PER_DAY?: string
   /** Google Sign-In OAuth client id (public). Empty = /auth/google disabled. */
   GOOGLE_CLIENT_ID?: string
   /** Daily image-question cap per Google account (default 5). */

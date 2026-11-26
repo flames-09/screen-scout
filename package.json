@@ -1,7 +1,7 @@
 {
   "name": "screen-scout",
   "productName": "Screen Scout",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A lightweight desktop AI assistant. Press Shift+R, select any region of your screen, and ask a vision-capable AI model about it — via the free hosted tier or your own NVIDIA key.",
   "main": "out/main/index.js",
   "private": true,

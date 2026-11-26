@@ -29,9 +29,12 @@ import {
   D1QuotaStore,
   accountLimitsFromEnv,
   accountQuotaSnapshot,
+  clearDeviceBurn,
   deleteDeviceData,
+  isDeviceBurned,
   limitsFromEnv,
   quotaSnapshot,
+  reserveDeletion,
   releaseAccountQuestion,
   releaseGlobal,
   releaseQuestion,
@@ -230,6 +233,14 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     // Device bookkeeping is advisory; never block a registration on it.
   }
 
+  // A fresh registration through the IP-throttled door explicitly reclaims a
+  // previously deleted device id (clears its deletion tombstone).
+  try {
+    await clearDeviceBurn(env.DB, deviceId)
+  } catch {
+    // Same advisory contract: a stale tombstone only means the id stays 403.
+  }
+
   const { token, expiresAt } = await issueToken(env.TOKEN_SIGNING_SECRET, deviceId, appVersion, now)
   const snapshot = await quotaSnapshot(store, deviceId, limitsFromEnv(env), now)
   return json(
@@ -293,6 +304,12 @@ async function authenticate(request: Request, env: Env): Promise<{ deviceId: str
   if (!payload) {
     return apiError(401, 'unauthorized', 'Device token is missing, invalid, or expired. Register again.')
   }
+  // Deletion tombstone: a deleted id serves nothing until it is explicitly
+  // re-claimed through the IP-throttled /v1/register door. This keeps
+  // "delete my data" from doubling as a free quota reset.
+  if (await isDeviceBurned(env.DB, payload.d)) {
+    return apiError(403, 'token-revoked', 'This device was deleted. Register again to continue.')
+  }
   return { deviceId: payload.d, version: typeof payload.v === 'string' ? payload.v : 'unknown' }
 }
 
@@ -327,14 +344,21 @@ async function handleQuota(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Account deletion. Removes every stored row tied to the token's id — the
- * devices row plus all of its usage counters — and reports which kind of id
- * it was. The HMAC token itself is stateless and simply expires; after this
- * call its id owns no data on the relay.
+ * Account deletion. Removes every stored row tied to the token's id - the
+ * devices row (device ids) or the account counters (acct ids) - and reports
+ * which kind of id it was. The HMAC token itself is stateless and simply
+ * expires; after this call its id owns no data on the relay. Device ids are
+ * tombstoned for 48h (a register call reclaims them) so deletion cannot be
+ * replayed as a quota reset; the endpoint itself is IP-throttled per day.
  */
 async function handleAccountDelete(request: Request, env: Env): Promise<Response> {
   const auth = await authenticate(request, env)
   if (auth instanceof Response) return auth
+  const store = new D1QuotaStore(env.DB)
+  const deleteLimit = Math.max(1, Number(env.DELETES_PER_IP_PER_DAY) || 3)
+  if (!(await reserveDeletion(store, clientIp(request), deleteLimit))) {
+    return apiError(429, 'rate-limit', 'Too many deletions from this network today.', { retryAfterSec: 3600 })
+  }
   await deleteDeviceData(env.DB, auth.deviceId)
   const kind = isAccountDeviceId(auth.deviceId) ? 'account' : 'device'
   return json(200, { ok: true, kind })

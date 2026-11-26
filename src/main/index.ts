@@ -912,6 +912,23 @@ function bootstrap(): void {
     return { ok: true }
   })
 
+  ipcMain.handle('hosted:confirm-delete', async () => {
+    const options = {
+      type: 'warning' as const,
+      title: 'Delete relay data',
+      message: 'Delete all data the relay stores for this account?',
+      detail:
+        'The account/device record and every usage counter are removed from the relay database. This cannot be undone.',
+      buttons: ['Delete', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    }
+    const parent = settingsWindow ?? assistantWindow ?? null
+    const choice = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+    return { ok: choice.response === 0 }
+  })
+
   ipcMain.handle('app:openExternal', async (_event, payload) => {
     const parsed = openExternalSchema.safeParse(payload)
     if (!parsed.success) return { ok: false, message: 'Only http(s) links can be opened.' }

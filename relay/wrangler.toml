@@ -24,6 +24,7 @@ GLOBAL_CF_PER_DAY = "130"
 GLOBAL_NVIDIA_PER_DAY = "400"
 MAX_BODY_BYTES = "6291456"
 REGISTRATIONS_PER_IP_PER_DAY = "20"
+DELETES_PER_IP_PER_DAY = "3"
 # Google-account daily split (first-run choice: Google sign-in or own key).
 # GOOGLE_CLIENT_ID is the PUBLIC OAuth client id — safe as a var, but keep it
 # empty until the OAuth client exists; empty = /v1/auth/google answers 503.
@@ -74,6 +75,7 @@ GLOBAL_CF_PER_DAY = "130"
 GLOBAL_NVIDIA_PER_DAY = "400"
 MAX_BODY_BYTES = "6291456"
 REGISTRATIONS_PER_IP_PER_DAY = "20"
+DELETES_PER_IP_PER_DAY = "3"
 GOOGLE_CLIENT_ID = "461964937671-5nkjuee4m9r21uj93hvn99socga293m9.apps.googleusercontent.com"
 ACCOUNT_IMAGE_PER_DAY = "5"
 ACCOUNT_CHAT_PER_DAY = "50"

@@ -407,18 +407,13 @@ export function SettingsApp(): JSX.Element {
   // Removes the account (or device) record and all usage counters from the
   // relay, then signs out. Nothing is deleted from the Google account itself.
   const handleDeleteAccount = useCallback(async (): Promise<void> => {
-    if (
-      !window.confirm(
-        'Delete all data the relay stores for this account — the account record and every usage counter? This cannot be undone.'
-      )
-    ) {
-      return
-    }
+    // Native dialog via main: renderer window.confirm() loses focus (electron#19977).
+    if (!(await window.scout.settings.confirmDeleteData())) return
     setAccountMessage(null)
     try {
       const result = await window.scout.settings.hostedDeleteAccount()
       if (result.ok) {
-        setAccountMessage('Deleted. The relay no longer stores anything for this account.')
+        setAccountMessage('Deleted your data on the relay. A fresh record starts on next use.')
         load()
       } else {
         setAccountMessage(result.message ?? 'Deletion failed.')
@@ -546,17 +541,7 @@ export function SettingsApp(): JSX.Element {
             {settings.hostedAvailable && (
               <div className="account-row">
                 <span className="account-email">
-                  <a
-                    href="https://screen-scout-relay.flamesrise09.workers.dev/guidelines"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      void window.scout.app.openExternal(
-                        'https://screen-scout-relay.flamesrise09.workers.dev/guidelines'
-                      )
-                    }}
-                  >
-                    Safety guidelines
-                  </a>
+                  <RelayLink path="/guidelines">Safety guidelines</RelayLink>
                   {' · includes crisis resources'}
                 </span>
                 <button

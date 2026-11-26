@@ -248,18 +248,38 @@ describe('deleteDeviceData', () => {
     usage = new Map<string, { count: number; expiresAt: number }>()
     devices = new Map<string, unknown>()
     prepare(sql: string) {
+      const exec = (params: unknown[]) => {
+        if (sql.startsWith('DELETE FROM usage') && params.length === 2) {
+          const [lo, hi] = params as [string, string]
+          for (const key of [...this.usage.keys()]) if (key >= lo && key < hi) this.usage.delete(key)
+        } else if (sql.startsWith('DELETE FROM usage')) {
+          this.usage.delete(params[0] as string)
+        } else if (sql.startsWith('INSERT INTO usage')) {
+          const [bucket, expiresAt] = params as [string, number]
+          this.usage.set(bucket, { count: 1, expiresAt })
+        } else if (sql.startsWith('DELETE FROM devices')) {
+          this.devices.delete(params[0] as string)
+        }
+        return Promise.resolve({ success: true })
+      }
       return {
         bind: (...params: unknown[]) => ({
-          run: async () => {
-            if (sql.startsWith('DELETE FROM usage')) {
-              const [lo, hi] = params as [string, string]
-              for (const key of [...this.usage.keys()]) if (key >= lo && key < hi) this.usage.delete(key)
-            } else if (sql.startsWith('DELETE FROM devices')) {
-              this.devices.delete(params[0] as string)
+          run: async () => exec(params),
+          first: async <T>() => {
+            if (sql.startsWith('SELECT count FROM usage')) {
+              const [bucket, now] = params as [string, number]
+              const row = this.usage.get(bucket)
+              return (row && row.expiresAt > now ? { count: row.count } : null) as T | null
             }
+            return null
           }
         })
       }
+    }
+    async batch(statements: Array<{ run: () => Promise<unknown> }>): Promise<unknown[]> {
+      const out: unknown[] = []
+      for (const stmt of statements) out.push(await stmt.run())
+      return out
     }
   }
 
@@ -277,8 +297,39 @@ describe('deleteDeviceData', () => {
 
     expect(db.devices.has('dev1111111111111111')).toBe(false)
     expect(db.devices.has('dev2222222222222222')).toBe(true)
-    expect(db.usage.size).toBe(2)
+    // Other id's counter + global budget + this id's new deletion tombstone.
+    expect(db.usage.size).toBe(3)
     expect(db.usage.has('dev:dev2222222222222222:day:2026-11-25')).toBe(true)
     expect(db.usage.has('global:groq:day:2026-11-25')).toBe(true)
+    expect(db.usage.has('burn:dev1111111111111111')).toBe(true)
+  })
+
+  it('removes the acct counters for a Google-account id', async () => {
+    const { deleteDeviceData } = await import('../relay/src/quota')
+    const db = new FakeD1()
+    db.usage.set('acct:abc123:img:day:2026-11-25', { count: 2, expiresAt: 1 })
+    db.usage.set('acct:abc123:txt:day:2026-11-25', { count: 9, expiresAt: 1 })
+    db.usage.set('acct:other99:img:day:2026-11-25', { count: 4, expiresAt: 1 })
+
+    await deleteDeviceData(db as unknown as Parameters<typeof deleteDeviceData>[0], 'acct:abc123')
+
+    expect(db.usage.has('acct:abc123:img:day:2026-11-25')).toBe(false)
+    expect(db.usage.has('acct:abc123:txt:day:2026-11-25')).toBe(false)
+    expect(db.usage.has('acct:other99:img:day:2026-11-25')).toBe(true)
+  })
+
+  it('tombstones a deleted device id until a register reclaims it', async () => {
+    const { clearDeviceBurn, deleteDeviceData, isDeviceBurned } = await import('../relay/src/quota')
+    const db = new FakeD1()
+    db.usage.set('dev:dev1111111111111111:day:2026-11-25', { count: 1, expiresAt: 1 })
+
+    await deleteDeviceData(db as unknown as Parameters<typeof deleteDeviceData>[0], 'dev1111111111111111', 1000)
+    expect(db.usage.has('dev:dev1111111111111111:day:2026-11-25')).toBe(false)
+    expect(await isDeviceBurned(db as unknown as Parameters<typeof isDeviceBurned>[0], 'dev1111111111111111', 2000)).toBe(true)
+    // Tombstone expires after 48h.
+    expect(await isDeviceBurned(db as unknown as Parameters<typeof isDeviceBurned>[0], 'dev1111111111111111', 1000 + 2 * 24 * 3600 * 1000 + 1)).toBe(false)
+
+    await clearDeviceBurn(db as unknown as Parameters<typeof clearDeviceBurn>[0], 'dev1111111111111111')
+    expect(await isDeviceBurned(db as unknown as Parameters<typeof isDeviceBurned>[0], 'dev1111111111111111', 2000)).toBe(false)
   })
 })

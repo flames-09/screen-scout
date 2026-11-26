@@ -103,6 +103,10 @@ const scoutApi = {
     hostedDeleteAccount(): Promise<{ ok: boolean; kind?: 'device' | 'account'; message?: string }> {
       return ipcRenderer.invoke('hosted:delete-account')
     },
+    /** Native confirmation dialog (renderer confirm() loses focus in Electron). */
+    confirmDeleteData(): Promise<boolean> {
+      return ipcRenderer.invoke('hosted:confirm-delete').then((r) => Boolean((r as { ok: boolean }).ok))
+    },
     /** Onboarding choice: use my own API key instead (marks onboarding done). */
     hostedOnboardWithOwnKey(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke('hosted:onboard-byok')
