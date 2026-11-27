@@ -843,6 +843,48 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
           3000
         )
       )
+      // Ctrl +/-/0: the main process maps these keys to the same persisted
+      // zoom (zoom-keys.ts) and suppresses Chromium's asymmetric default
+      // accelerators. Synthetic input events traverse the same
+      // before-input-event emission point as real keystrokes.
+      await assistant.webContents.sendInputEvent({ type: 'keyDown', keyCode: '=', modifiers: ['control'] })
+      record(
+        'zoom.ctrlEqualsStepsUp',
+        await waitUntil(
+          'ctrl+= stepped zoom to 105%',
+          async () =>
+            (await assistant.webContents.executeJavaScript('document.documentElement.dataset.zoom')) === '1.05',
+          3000
+        )
+      )
+      await assistant.webContents.sendInputEvent({ type: 'keyDown', keyCode: '-', modifiers: ['control'] })
+      record(
+        'zoom.ctrlMinusStepsDown',
+        await waitUntil(
+          'ctrl+- stepped zoom back to 100%',
+          async () =>
+            (await assistant.webContents.executeJavaScript('document.documentElement.dataset.zoom')) === '1',
+          3000
+        )
+      )
+      await assistant.webContents.sendInputEvent({ type: 'keyDown', keyCode: '=', modifiers: ['control'] })
+      await assistant.webContents.sendInputEvent({ type: 'keyDown', keyCode: '0', modifiers: ['control'] })
+      record(
+        'zoom.ctrlZeroResets',
+        await waitUntil(
+          'ctrl+0 reset zoom to default',
+          async () => {
+            const zoomAttr = (await assistant.webContents.executeJavaScript(
+              'document.documentElement.dataset.zoom'
+            )) as unknown
+            const persisted = (await settings.webContents.executeJavaScript(
+              'window.scout.settings.get().then((s) => s.zoom)'
+            )) as unknown
+            return zoomAttr === '1' && persisted === 1
+          },
+          3000
+        )
+      )
 
       // Clicking another app must never hide the popup (regression guard for
       // the transparent-window blur bug: windows.ts forces a repaint on blur,

@@ -51,6 +51,13 @@ export function acceleratorFromEvent(e: { key: string; ctrlKey: boolean; altKey:
     return { ok: false, reason: `The "${raw}" key can't be used in a shortcut. Try a letter, digit, or F-key.` }
   }
 
+  // Ctrl/Cmd +/-/0 are reserved: they zoom the assistant popup (main maps
+  // them to the persisted zoom). A global shortcut here would consume the
+  // combo system-wide and silently kill the zoom keys.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && ['=', '+', '-', '0'].includes(raw)) {
+    return { ok: false, reason: 'Ctrl +/-/0 zoom the popup. Pick another combo.' }
+  }
+
   const parts: string[] = []
   if (e.ctrlKey) parts.push('Control')
   if (e.altKey) parts.push('Alt')

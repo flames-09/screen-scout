@@ -44,6 +44,7 @@ import {
 } from './windows'
 import { createTray } from './tray'
 import { runE2eTest, setupE2eSurveillance } from './e2e'
+import { nextZoomFor } from './zoom-keys'
 
 /**
  * Screen Scout — background lifecycle + IPC wiring.
@@ -452,6 +453,32 @@ function bootstrap(): void {
     if (assistantWindow && !assistantWindow.isDestroyed()) return assistantWindow
     assistantWindow = createAssistantWindow()
     attachBackdropRefresh(assistantWindow)
+    // Users who hit the old Ctrl+- bug may carry a stale Chromium page zoom
+    // (a separate system from the app's CSS zoom) — pin it to 100%.
+    assistantWindow.webContents.setZoomLevel(0)
+    // Ctrl +/-/0 drive the app's persisted assistant zoom (the same value the
+    // Settings slider writes). Chromium's default zoom accelerators are
+    // asymmetric out of the box — Ctrl+- fires, but zoom-in is bound to the
+    // '+' character so the natural Ctrl+= press never matches — so intercept
+    // all of them here and keep Chromium's page zoom from fighting the app's.
+    assistantWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.alt) return // AltGr is Ctrl+Alt on Windows
+      const current = settingsStore.load().zoom || 1
+      const zoom = nextZoomFor(current, input.key, input.control, input.meta)
+      if (zoom === null) return
+      event.preventDefault()
+      if (zoom === current) return
+      try {
+        settingsStore.update({ zoom })
+        pushSettingsToAssistant()
+      } catch (error) {
+        // A failed prefs write (disk full, AV lock) must not escape an input
+        // event into an uncaught main-process exception; zoom just stays.
+        logger.warn(
+          `zoom: could not persist the Ctrl zoom change (${error instanceof Error ? error.message : String(error)})`
+        )
+      }
+    })
     assistantWindow.on('close', (event) => {
       // Closing the popup hides it — the background app keeps running —
       // unless the app is actually quitting (tray Quit / app:quit).
