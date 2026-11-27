@@ -304,18 +304,36 @@ describe('deleteDeviceData', () => {
     expect(db.usage.has('burn:dev1111111111111111')).toBe(true)
   })
 
-  it('removes the acct counters for a Google-account id', async () => {
-    const { deleteDeviceData } = await import('../relay/src/quota')
+  it('removes the acct counters for a Google-account id and tombstones it', async () => {
+    const { clearDeviceBurn, deleteDeviceData, isDeviceBurned } = await import('../relay/src/quota')
     const db = new FakeD1()
     db.usage.set('acct:abc123:img:day:2026-11-25', { count: 2, expiresAt: 1 })
     db.usage.set('acct:abc123:txt:day:2026-11-25', { count: 9, expiresAt: 1 })
     db.usage.set('acct:other99:img:day:2026-11-25', { count: 4, expiresAt: 1 })
 
-    await deleteDeviceData(db as unknown as Parameters<typeof deleteDeviceData>[0], 'acct:abc123')
+    const asD1 = db as unknown as Parameters<typeof deleteDeviceData>[0]
+    await deleteDeviceData(asD1, 'acct:abc123', 1000)
 
     expect(db.usage.has('acct:abc123:img:day:2026-11-25')).toBe(false)
     expect(db.usage.has('acct:abc123:txt:day:2026-11-25')).toBe(false)
     expect(db.usage.has('acct:other99:img:day:2026-11-25')).toBe(true)
+    // Same 48h tombstone devices get: a still-valid token serves 403 until a
+    // fresh sign-in (which clears the burn) starts the new record.
+    expect(await isDeviceBurned(db as unknown as Parameters<typeof isDeviceBurned>[0], 'acct:abc123', 2000)).toBe(true)
+    await clearDeviceBurn(db as unknown as Parameters<typeof clearDeviceBurn>[0], 'acct:abc123')
+    expect(await isDeviceBurned(db as unknown as Parameters<typeof isDeviceBurned>[0], 'acct:abc123', 2000)).toBe(false)
+  })
+
+  it('refreshes a pre-existing acct tombstone via the upsert path', async () => {
+    const { deleteDeviceData, isDeviceBurned } = await import('../relay/src/quota')
+    const db = new FakeD1()
+    // A stale tombstone from an earlier deletion (already expired) must be
+    // overwritten by the INSERT ... ON CONFLICT with a fresh 48h expiry.
+    db.usage.set('burn:acct:abc123', { count: 1, expiresAt: 1 })
+
+    await deleteDeviceData(db as unknown as Parameters<typeof deleteDeviceData>[0], 'acct:abc123', 1000)
+
+    expect(await isDeviceBurned(db as unknown as Parameters<typeof isDeviceBurned>[0], 'acct:abc123', 2000)).toBe(true)
   })
 
   it('tombstones a deleted device id until a register reclaims it', async () => {

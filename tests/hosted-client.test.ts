@@ -354,4 +354,54 @@ describe('deleteAccount', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, {}))
     await expect(client.deleteAccount()).rejects.toBeInstanceOf(HostedError)
   })
+
+  it('re-registers on a 403 token-revoked tombstone and retries the delete', async () => {
+    const burned = futureToken()
+    const fresh = futureToken()
+    const { client, store } = makeClient()
+    store.token = burned
+    // 1) delete with the burned token -> 403 tombstone
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'token-revoked' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+    // 2) refresh -> re-register clears the tombstone, returns a fresh token
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: fresh, expiresAt: Date.now() + 3_600_000 }))
+    // 3) retried delete succeeds
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true, kind: 'device' }))
+
+    const result = await client.deleteAccount()
+
+    expect(result).toEqual({ ok: true, kind: 'device' })
+    expect(store.saves).toBe(1) // re-register persisted the fresh token
+    expect(store.clears).toBe(2) // refreshToken + final delete cleanup
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://relay.test/v1/account/delete',
+      'https://relay.test/v1/register',
+      'https://relay.test/v1/account/delete'
+    ])
+    const retriedInit = fetchMock.mock.calls[2][1] as RequestInit
+    expect((retriedInit.headers as Record<string, string>)['x-device-token']).toBe(fresh)
+  })
+
+  it('surfaces bad-response when the retried delete still fails', async () => {
+    const { client, store } = makeClient()
+    store.token = futureToken()
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'token-revoked' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: futureToken(), expiresAt: Date.now() + 3_600_000 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: 'token-revoked' }))
+
+    await expect(client.deleteAccount()).rejects.toMatchObject({ code: 'bad-response' })
+    expect(fetchMock.mock.calls).toHaveLength(3)
+    // Only refreshToken cleared the store; the error throw skips the
+    // post-success cleanup.
+    expect(store.clears).toBe(1)
+  })
 })

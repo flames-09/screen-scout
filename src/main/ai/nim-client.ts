@@ -200,6 +200,15 @@ export function mapHttpStatus(
       return nimError('invalid-key', { detail: `HTTP 401${detail ? ` — ${detail}` : ''}` })
     case 402:
       return nimError('payment-required', { detail: `HTTP 402${detail ? ` — ${detail}` : ''}` })
+    case 403:
+      // Hosted tombstone: the relay revoked this device token after an
+      // account/data deletion (48h burn row). Map to 'invalid-key' so
+      // ChatService's refresh-once path re-registers — the relay clears the
+      // tombstone on registration. Any other 403 stays a generic failure.
+      if (hosted && /token-revoked/.test(bodyText)) {
+        return nimError('invalid-key', { detail: `HTTP 403${detail ? ` — ${detail}` : ''}` })
+      }
+      return nimError('server', { detail: `HTTP 403${detail ? ` — ${detail}` : ''}` })
     case 404:
       return nimError('bad-request', {
         detail: `HTTP 404 — model not found${detail ? `: ${detail}` : ''}`

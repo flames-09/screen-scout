@@ -342,8 +342,17 @@ export function SettingsApp(): JSX.Element {
         return `Update available: version ${phase.version}.`
       case 'downloading':
         return `Downloading update… ${phase.percent}%`
-      case 'verified':
-        return `Version ${phase.version} downloaded and verified — ready to install.`
+      case 'verified': {
+        // Accuracy: install-on-quit is Windows-only and only while auto
+        // updates are on; mac installs via the DMG, disabled auto-updates
+        // install via the button.
+        if (!(settings?.updatesEnabled ?? true)) {
+          return `Version ${phase.version} downloaded and verified — choose Install update.`
+        }
+        return navigator.platform.startsWith('Mac')
+          ? `Version ${phase.version} downloaded and verified — open the downloaded DMG to install.`
+          : `Version ${phase.version} downloaded and verified — it installs automatically when you quit.`
+      }
       case 'installing':
         return 'Installing… Screen Scout will restart.'
       case 'error':
@@ -407,10 +416,10 @@ export function SettingsApp(): JSX.Element {
   // Removes the account (or device) record and all usage counters from the
   // relay, then signs out. Nothing is deleted from the Google account itself.
   const handleDeleteAccount = useCallback(async (): Promise<void> => {
-    // Native dialog via main: renderer window.confirm() loses focus (electron#19977).
-    if (!(await window.scout.settings.confirmDeleteData())) return
     setAccountMessage(null)
     try {
+      // Native dialog via main: renderer window.confirm() loses focus (electron#19977).
+      if (!(await window.scout.settings.confirmDeleteData())) return
       const result = await window.scout.settings.hostedDeleteAccount()
       if (result.ok) {
         setAccountMessage('Deleted your data on the relay. A fresh record starts on next use.')
@@ -956,7 +965,10 @@ export function SettingsApp(): JSX.Element {
             </span>
             <span className="toggle-label">
               Check for updates automatically
-              <span className="toggle-sub">Contacts Screen Scout's update feed at launch and every 6 hours.</span>
+              <span className="toggle-sub">
+                New versions download in the background and install when Screen Scout quits (automatic on Windows).
+                Checks at launch and every 6 hours.
+              </span>
             </span>
           </label>
         </section>

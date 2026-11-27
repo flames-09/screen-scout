@@ -932,7 +932,11 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
           )
           record(
             'updates.verified',
-            await waitUntil('update verified', async () => (await updatesStatus()).includes('ready to install'), 8000),
+            await waitUntil(
+              'update verified',
+              async () => (await updatesStatus()).includes('installs automatically when you quit'),
+              8000
+            ),
             await updatesStatus()
           )
 

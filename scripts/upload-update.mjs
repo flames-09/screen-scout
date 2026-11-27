@@ -254,6 +254,49 @@ try {
     console.log(`  ${' '.repeat(10)} size   ${(row.size / 1024 / 1024).toFixed(1)} MB`)
   }
   console.log(`  feed     /updates/latest.json (served from D1)`)
+
+  // ---- Post-publish verification: read the LIVE feed back --------------------
+  // A feed that disagrees with what was just written (wrong D1 database,
+  // partially applied SQL, an edge cache serving stale rows) silently bricks
+  // updates for every client, so verify and fail loudly instead.
+  const hostedSrc = readFileSync(join(root, 'src', 'shared', 'hosted.ts'), 'utf8')
+  const relayMatch = hostedSrc.match(/HOSTED_RELAY_URL = '([^']+)'/)
+  if (!relayMatch) throw new Error('Could not read HOSTED_RELAY_URL from src/shared/hosted.ts.')
+  const feedUrl = `${relayMatch[1]}/updates/latest.json`
+  let feed = null
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const res = await fetch(feedUrl, { headers: { 'cache-control': 'no-cache' } })
+    if (res.ok) {
+      feed = await res.json()
+      break
+    }
+    if (attempt < 4) await sleep(2000)
+  }
+  if (!feed || typeof feed !== 'object') {
+    throw new Error(`Feed verification failed: ${feedUrl} did not return 200 after publishing.`)
+  }
+  const problems = []
+  // The top-level manifest IS the win row (relay builds it that way), so the
+  // two must agree; a divergence means a mangled feed.
+  if (feed.platforms?.win?.version !== undefined && feed.version !== feed.platforms.win.version) {
+    problems.push(`top-level version (${feed.version}) != platforms.win.version (${feed.platforms.win.version})`)
+  }
+  for (const row of rows) {
+    const remote = feed.platforms?.[row.platform]
+    if (remote?.version !== version) {
+      problems.push(`${row.platform}: feed version is ${remote?.version ?? 'missing'}, expected ${version}`)
+    } else if (remote.url !== row.url || remote.sha256 !== row.sha256 || remote.sizeBytes !== row.size) {
+      // sizeBytes matters as much as the hash: the client caps the download
+      // from it, so a corrupted size makes every client abort the update.
+      problems.push(`${row.platform}: feed url/sha256/sizeBytes do not match what was just published`)
+    }
+  }
+  if (problems.length > 0) {
+    console.error(`\nLive feed at ${feedUrl} does not match the published manifest:`)
+    for (const problem of problems) console.error(`  - ${problem}`)
+    throw new Error('Feed verification failed — the update feed is NOT serving this release.')
+  }
+  console.log(`  verified  live feed serves ${version} for ${rows.map((r) => r.platform).join(', ')}`)
 } finally {
   try {
     unlinkSync(manifestPath)

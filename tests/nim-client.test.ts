@@ -103,6 +103,17 @@ describe('mapHttpStatus', () => {
     expect(server.retryable).toBe(true)
   })
 
+  it('maps a hosted 403 token-revoked to invalid-key (drives re-register)', () => {
+    const e = mapHttpStatus(403, '{"error":"token-revoked"}', { hosted: true })
+    expect(e.code).toBe('invalid-key')
+    expect(e.retryable).toBe(false)
+  })
+
+  it('maps other 403s to a generic server error', () => {
+    expect(mapHttpStatus(403, '{"error":"token-revoked"}').code).toBe('server')
+    expect(mapHttpStatus(403, 'forbidden', { hosted: true }).code).toBe('server')
+  })
+
   it('maps image-related 400/422 to unsupported-image', () => {
     const e = mapHttpStatus(400, '{"detail":"Image is not supported for this model"}')
     expect(e.code).toBe('unsupported-image')

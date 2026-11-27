@@ -135,8 +135,11 @@ export function privacyPage(): Response {
          id, its usage counters, and, if you signed in, the keyed account hash) you can delete
          yourself: in the app, open <strong>Settings &gt; Access</strong> and use
          <strong>Delete my data on the relay</strong>. That removes the device or account
-         row and every counter tied to it from the database; your app starts a fresh, empty record the next time it uses the service. If you signed in with Google, deleting
-         does not touch your Google account; signing in again simply starts a fresh empty record.</p>
+         row and every counter tied to it from the database; a 48-hour deletion marker (just the id
+         and an expiry - no usage data) prevents the old record from being silently recreated until
+         your app registers or signs in again, which starts a fresh, empty record. If you signed in
+         with Google, deleting does not touch your Google account; signing in again simply starts a
+         fresh empty record.</p>
      <h2>Your choice</h2>
      <p>You can switch to <strong>My own NVIDIA key</strong> in Settings at any time. In that mode the app
         talks directly to the endpoint you configure and this relay is never contacted.</p>

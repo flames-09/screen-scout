@@ -97,14 +97,23 @@ export class D1QuotaStore implements QuotaStore {
 export async function deleteDeviceData(db: D1Database, deviceId: string, now = Date.now()): Promise<void> {
   if (deviceId.startsWith('acct:')) {
     // Google-account ids own only account counters (bucket keys
-    // `acct:<bare>:…`). No devices row and no tombstone: the id is
-    // deterministic from the Google subject, so re-signing-in simply starts
-    // a fresh empty record (sign-ins are IP-throttled).
+    // `acct:<bare>:…`) — no devices row. The id is deterministic from the
+    // Google subject, so re-signing-in starts a fresh empty record; the same
+    // 48h tombstone devices get keeps a still-valid token from silently
+    // recreating counters before that fresh sign-in clears it.
     const bare = deviceId.slice(5)
     const prefix = `acct:${bare}:`
     // Range scan instead of LIKE: ';' is the character right after ':'.
     const upper = `acct:${bare};`
-    await db.batch([db.prepare('DELETE FROM usage WHERE bucket >= ? AND bucket < ?').bind(prefix, upper)])
+    await db.batch([
+      db.prepare('DELETE FROM usage WHERE bucket >= ? AND bucket < ?').bind(prefix, upper),
+      db
+        .prepare(
+          `INSERT INTO usage (bucket, count, expires_at) VALUES (?, 1, ?)
+           ON CONFLICT(bucket) DO UPDATE SET count = 1, expires_at = excluded.expires_at`
+        )
+        .bind(`burn:${deviceId}`, now + 2 * 24 * HOUR_MS)
+    ])
     return
   }
   const prefix = `dev:${deviceId}:`

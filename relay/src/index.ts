@@ -286,6 +286,13 @@ async function handleGoogleAuth(request: Request, env: Env): Promise<Response> {
   }
 
   const hash = await accountHashFromGoogleSub(env.TOKEN_SIGNING_SECRET, claims.sub)
+  // A fresh sign-in explicitly reclaims a previously deleted account id
+  // (clears its deletion tombstone) — the account analogue of /v1/register.
+  try {
+    await clearDeviceBurn(env.DB, hash)
+  } catch {
+    // Advisory: a stale tombstone only means the account stays 403.
+  }
   const { token, expiresAt } = await issueToken(env.TOKEN_SIGNING_SECRET, hash, appVersion)
   const snapshot = await accountQuotaSnapshot(store, hash, accountLimitsFromEnv(env))
   return json(

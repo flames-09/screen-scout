@@ -86,6 +86,15 @@ if (E2E_TEST) {
 const PERSISTENCE_ARG = process.argv.find((a) => a.startsWith('--persistence-test='))
 const PERSISTENCE_PHASE = PERSISTENCE_ARG ? PERSISTENCE_ARG.split('=')[1] : undefined
 const PERSISTENCE_PROBE_KEY = 'nvapi-persistence-probe-0123456789abcdef-DO-NOT-USE'
+
+/**
+ * Updates apply themselves on real installs: a seen update downloads in the
+ * background immediately, and on Windows the verified installer runs silently
+ * as the app quits — no settings visit required. Excluded in every test
+ * harness so runs stay deterministic and never touch the production feed.
+ */
+const AUTO_APPLY_UPDATES =
+  app.isPackaged && !E2E_TEST && !SMOKE_TEST && !INTEGRATION_TEST && !PERSISTENCE_PHASE
 if (PERSISTENCE_PHASE) {
   const probeDir = path.join(app.getAppPath(), '.persistence-test-userdata')
   fs.mkdirSync(probeDir, { recursive: true })
@@ -366,8 +375,18 @@ function bootstrap(): void {
     },
     spawn: (file, args) => spawn(file, args, { detached: true, stdio: 'ignore' }),
     onState: (phase) => {
-      if (phase.kind === 'available') logger.info(`update available: ${phase.version}`)
-      else if (phase.kind === 'verified') logger.info(`update verified: ${phase.version}`)
+      if (phase.kind === 'available') {
+        logger.info(`update available: ${phase.version}`)
+        // Auto-apply: pull the installer in the background the moment an
+        // update is seen. Deferred one tick because check() still holds its
+        // busy flag synchronously inside this callback — an immediate call
+        // would be dropped as a re-entrant check.
+        if (AUTO_APPLY_UPDATES && settingsStore.load().updatesEnabled) {
+          setTimeout(() => {
+            void updateService.download()
+          }, 50)
+        }
+      } else if (phase.kind === 'verified') logger.info(`update verified: ${phase.version}`)
       else if (phase.kind === 'error') logger.warn(`update: ${phase.message}`)
       broadcastUpdateState()
     }
@@ -1171,6 +1190,20 @@ app.whenReady().then(async () => {
 
   // Quitting fully unregisters the shortcut and disposes resources.
   app.on('will-quit', () => {
+    // Auto-apply, Windows: a downloaded + hash-verified installer runs
+    // silently as the app exits, so updates land without any settings visit.
+    // The NSIS /S installer waits for this process to exit and is detached,
+    // so it survives us. Skipped when the IPC path already ran it (phase
+    // 'installing') and on macOS, where DMGs need the user's hand.
+    if (
+      AUTO_APPLY_UPDATES &&
+      process.platform === 'win32' &&
+      settingsStore.load().updatesEnabled &&
+      updateService.currentPhase().kind === 'verified' &&
+      updateService.install()
+    ) {
+      logger.info('update: applying pending update on quit')
+    }
     shortcuts.unregisterAll()
     captureShortcuts.unregisterAll()
     peekShortcuts.unregisterAll()

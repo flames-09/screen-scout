@@ -397,12 +397,21 @@ export class HostedClient {
     if (!this.isAvailable()) {
       throw new HostedError('unavailable', 'Hosted mode is not configured in this build.')
     }
-    const token = await this.ensureToken(false, signal)
-    const response = await this.request(
-      '/v1/account/delete',
-      { method: 'POST', headers: { 'x-device-token': token } },
-      signal
-    )
+    const attempt = async (token: string): Promise<Response> =>
+      await this.request(
+        '/v1/account/delete',
+        { method: 'POST', headers: { 'x-device-token': token } },
+        signal
+      )
+    let response = await attempt(await this.ensureToken(false, signal))
+    if (response.status === 403) {
+      const bodyText = await response.text().catch(() => '')
+      if (/token-revoked/.test(bodyText)) {
+        // The identity row is burned (deletion tombstone). Re-registering
+        // clears the tombstone server-side; retry once with the fresh token.
+        response = await attempt(await this.refreshToken(signal))
+      }
+    }
     if (response.status === 401) {
       throw new HostedError('unauthorized', 'Your session expired. Try again.')
     }
