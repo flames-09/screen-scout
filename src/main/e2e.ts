@@ -886,6 +886,56 @@ const drag2 = await assistant.webContents.executeJavaScript(REDACT_DRAG_JS(0.55,
         )
       )
 
+      // Appearance reset button: restores tint+zoom only — the key and the
+      // hosted/BYOK choice must survive it untouched. Perturb both knobs
+      // first so the assertion has teeth: ctrl+0 above already left zoom at
+      // 1, and the key slot is empty after the removal earlier in section 8.
+      await assistant.webContents.sendInputEvent({ type: 'keyDown', keyCode: '=', modifiers: ['control'] })
+      record(
+        'appearance.resetArmed',
+        await waitUntil(
+          'zoom armed to 105% before reset',
+          async () =>
+            (await assistant.webContents.executeJavaScript('document.documentElement.dataset.zoom')) === '1.05',
+          3000
+        )
+      )
+      await settings.webContents.executeJavaScript(TYPE_JS('input[type=password]', FAKE_KEY))
+      await settings.webContents.executeJavaScript(findByTextJs('Save key securely'))
+      await waitUntil('key re-armed before reset', async () => mounted(settings, '.key-status.secure'), 4000)
+      const beforeReset = (await settings.webContents.executeJavaScript(`window.scout.settings.get()`)) as {
+        accessMode?: string
+      }
+      await settings.webContents.executeJavaScript(clickJs('[data-testid="reset-appearance"]'))
+      record(
+        'appearance.resetToDefaults',
+        await waitUntil(
+          'appearance reset applied',
+          async () => {
+            const pub = (await settings.webContents.executeJavaScript(`window.scout.settings.get()`)) as {
+              zoom?: number
+              glassTint?: number
+              hasApiKey?: boolean
+              accessMode?: string
+            }
+            const zoomAttr = (await assistant.webContents.executeJavaScript(
+              'document.documentElement.dataset.zoom'
+            )) as unknown
+            return (
+              pub.glassTint === 25 &&
+              pub.zoom === 1 &&
+              zoomAttr === '1' &&
+              pub.hasApiKey === true &&
+              pub.accessMode === beforeReset.accessMode
+            )
+          },
+          4000
+        )
+      )
+      // Leave the flow exactly as it was before this section: no key saved.
+      await settings.webContents.executeJavaScript(findByTextJs('Remove key'))
+      await waitUntil('key removed after reset check', async () => mounted(settings, '.key-status.none'), 4000)
+
       // Clicking another app must never hide the popup (regression guard for
       // the transparent-window blur bug: windows.ts forces a repaint on blur,
       // and no blur handler may hide or untoggle the window). Focus the popup

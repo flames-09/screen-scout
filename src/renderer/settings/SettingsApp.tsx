@@ -80,6 +80,7 @@ export function SettingsApp(): JSX.Element {
       setShortcutDraft(s.shortcut)
       setCaptureDraft(s.captureShortcut)
       setPeekDraft(s.peekShortcut)
+      setResetNote(null)
       if (s.hostedQuota) {
         setQuota(s.hostedQuota)
         setQuotaFailed(false)
@@ -268,6 +269,8 @@ export function SettingsApp(): JSX.Element {
   /** Slider position while dragging (null = resting on the saved value). */
   const [tintDraft, setTintDraft] = useState<number | null>(null)
   const [zoomDraft, setZoomDraft] = useState<number | null>(null)
+  /** Transient result of the appearance reset button. */
+  const [resetNote, setResetNote] = useState<string | null>(null)
 
   const saveTint = useCallback(
     async (value: number): Promise<void> => {
@@ -299,6 +302,19 @@ export function SettingsApp(): JSX.Element {
     },
     [guard]
   )
+
+  // Appearance reset: restores ONLY the two appearance knobs. The API key and
+  // the hosted/BYOK choice are deliberately out of scope — "reset" here must
+  // never be able to lock the user out of their model access.
+  const resetAppearance = useCallback(async (): Promise<void> => {
+    await guard(async () => {
+      const updated = await window.scout.settings.save({ glassTint: 25, zoom: 1 })
+      setSettings(updated)
+      setResetNote('Defaults restored.')
+    })
+    setTintDraft(null)
+    setZoomDraft(null)
+  }, [guard])
 
   const toggleStartup = useCallback(async (): Promise<void> => {
     if (!settings) return
@@ -900,6 +916,20 @@ export function SettingsApp(): JSX.Element {
             />
             <span className="slider-value" data-testid="zoom-value">
               {zoomDraft ?? Math.round((settings?.zoom ?? 1) * 100)}%
+            </span>
+          </div>
+          <div className="settings-row">
+            <button
+              type="button"
+              className="btn"
+              data-testid="reset-appearance"
+              onClick={() => void resetAppearance()}
+              disabled={!settings}
+            >
+              Reset to defaults
+            </button>
+            <span className="toggle-sub" data-testid="reset-note" role="status">
+              {resetNote ?? 'Restores tint (25%) and zoom (100%). Your API key and hosted/BYOK choice stay as they are.'}
             </span>
           </div>
         </section>
