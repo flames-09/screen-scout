@@ -51,6 +51,11 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" | npx w
 # 3b. Optional: NVIDIA image pool (skipping it routes images to Workers AI only)
 npx wrangler secret put NVIDIA_API_KEY
 
+# 3c. Google sign-in (required for the /v1/auth/google/* broker endpoints;
+#     the OAuth client's secret lives ONLY here - it must never ship in the app,
+#     which is why the relay brokers Google's token exchange and refresh calls)
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+
 # 4. Deploy â€” note the printed https://screen-scout-relay.<subdomain>.workers.dev URL
 npx wrangler deploy
 ```
@@ -92,6 +97,9 @@ used by the E2E tests) or `node scripts/set-relay-url.mjs`.
 | `GET` | `/v1/quota` | Remaining daily/window quota and reset times |
 | POST | /v1/chat/completions | OpenAI-compatible streaming chat (X-Device-Token) |
 | POST | /v1/account/delete | Delete the caller's device/account row + all its usage counters |
+| `POST` | `/v1/auth/google` | `{idToken}` → account token (relay verifies the Google id token) |
+| `POST` | `/v1/auth/google/exchange` | Form `{code, code_verifier, redirect_uri}` → `{id_token, refresh_token?}`. Relay brokers Google's token endpoint (holds `GOOGLE_CLIENT_SECRET`); code/refresh token transit but are never stored. Loopback redirects only; IP-throttled. |
+| `POST` | `/v1/auth/google/refresh` | Form `{refresh_token}` → `{id_token}`. Stateless pass-through to Google; not throttled (requires an unguessable Google-issued token). |
 | `GET` | `/health` | Config sanity check |
 | `GET` | `/privacy`, `/terms`, `/guidelines` | Human-readable pages (guidelines incl. crisis resources) |
 | `GET` | `/updates/latest.json` | Update manifest (top-level = win entry + `platforms` map from D1) |

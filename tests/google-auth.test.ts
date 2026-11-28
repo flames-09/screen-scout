@@ -141,3 +141,61 @@ describe('decodeIdTokenEmail', () => {
     expect(decodeIdTokenEmail(makeIdToken({ sub: 'x' }))).toBeNull()
   })
 })
+
+describe('broker endpoint overrides', () => {
+  it('sends the exchange to the relay broker URL when provided', async () => {
+    const seen: string[] = []
+    const fetchImpl: TokenFetchLike = async (url, init) => {
+      seen.push(url)
+      const body = new URLSearchParams(init.body)
+      expect(body.get('grant_type')).toBe('authorization_code')
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id_token: makeIdToken({ sub: 'sub-1', email: 'user@example.com' }) })
+      }
+    }
+    const result = await runGoogleAuthFlow(
+      flowDeps({
+        openExternal: fakeBrowser('ok'),
+        fetchImpl,
+        exchangeUrl: 'https://relay.example/v1/auth/google/exchange'
+      })
+    )
+    expect(result.ok).toBe(true)
+    expect(seen).toEqual(['https://relay.example/v1/auth/google/exchange'])
+  })
+
+  it('keeps hitting Google directly when no override is set', async () => {
+    const seen: string[] = []
+    const fetchImpl: TokenFetchLike = async (url) => {
+      seen.push(url)
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id_token: makeIdToken({ sub: 'sub-1' }) })
+      }
+    }
+    const result = await runGoogleAuthFlow(flowDeps({ openExternal: fakeBrowser('ok'), fetchImpl }))
+    expect(result.ok).toBe(true)
+    expect(seen).toEqual(['https://oauth2.googleapis.com/token'])
+  })
+
+  it('refreshes via the relay broker URL when provided', async () => {
+    const seen: string[] = []
+    const fetchImpl: TokenFetchLike = async (url, init) => {
+      seen.push(url)
+      const body = new URLSearchParams(init.body)
+      expect(body.get('grant_type')).toBe('refresh_token')
+      return { ok: true, status: 200, json: async () => ({ id_token: makeIdToken({ sub: 'sub-1' }) }) }
+    }
+    const result = await refreshGoogleIdToken(
+      CLIENT_ID,
+      'rt-1',
+      fetchImpl,
+      'https://relay.example/v1/auth/google/refresh'
+    )
+    expect(result.ok).toBe(true)
+    expect(seen).toEqual(['https://relay.example/v1/auth/google/refresh'])
+  })
+})

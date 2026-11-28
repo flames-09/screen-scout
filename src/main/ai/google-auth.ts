@@ -49,6 +49,12 @@ export interface GoogleAuthFlowDeps {
   openExternal: (url: string) => void | Promise<void>
   /** Token endpoint client (net.fetch in production). */
   fetchImpl: TokenFetchLike
+  /**
+   * Exchange endpoint. Defaults to Google's token endpoint; in production this
+   * is the relay's broker endpoint, which holds the client secret the app must
+   * never ship.
+   */
+  exchangeUrl?: string
   /** Bounds the whole flow (browser wait included). Default: 5 minutes. */
   timeoutMs?: number
 }
@@ -207,7 +213,8 @@ async function exchangeCode(
   redirectUri: string
 ): Promise<GoogleAuthFlowResult> {
   try {
-    const response = await deps.fetchImpl(TOKEN_ENDPOINT, {
+    const endpoint = deps.exchangeUrl?.trim() ? deps.exchangeUrl.trim() : TOKEN_ENDPOINT
+    const response = await deps.fetchImpl(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -236,11 +243,13 @@ async function exchangeCode(
 export async function refreshGoogleIdToken(
   clientId: string,
   refreshToken: string,
-  fetchImpl: TokenFetchLike
+  fetchImpl: TokenFetchLike,
+  refreshUrl?: string
 ): Promise<{ ok: true; idToken: string } | { ok: false; message: string }> {
   if (!clientId) return { ok: false, message: 'Google sign-in is not available in this build.' }
   try {
-    const response = await fetchImpl(TOKEN_ENDPOINT, {
+    const endpoint = refreshUrl?.trim() ? refreshUrl.trim() : TOKEN_ENDPOINT
+    const response = await fetchImpl(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({

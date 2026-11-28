@@ -284,7 +284,11 @@ function bootstrap(): void {
     url: string,
     init: { method?: string; headers?: Record<string, string>; body?: string }
   ): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> => {
-    if (url.startsWith('https://oauth2.googleapis.com/token')) {
+    if (
+      url.startsWith('https://oauth2.googleapis.com/token') ||
+      url.includes('/v1/auth/google/exchange') ||
+      url.includes('/v1/auth/google/refresh')
+    ) {
       return {
         ok: true,
         status: 200,
@@ -304,6 +308,7 @@ function bootstrap(): void {
   // registration can pull a fresh id token when authMethod is 'google'.
   const googleAuth = new GoogleAuthManager({
     clientId: () => HOSTED_GOOGLE_CLIENT_ID,
+    relayUrl,
     getRefreshToken: () => secrets.getGoogleRefreshToken(),
     saveRefreshToken: (token) => {
       const result = secrets.saveGoogleRefreshToken(token)

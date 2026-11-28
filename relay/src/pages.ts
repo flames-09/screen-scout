@@ -112,7 +112,11 @@ export function privacyPage(): Response {
            Google, and stores <strong>only a keyed hash</strong> of your account id — an HMAC-SHA256
            value with an <code>acct:</code> prefix. The relay does not store your email, your Google
            account id, or the sign-in token. The app shows your email locally (read from the token);
-           it is never stored server-side. Signing in counts against a small per-network daily sign-in cap (abuse throttling).
+           it is never stored server-side. During sign-in the one-time authorization code and the
+           refresh token <strong>transit the relay</strong> (over TLS, so Google's token endpoint can
+           complete the exchange) but are <strong>never stored</strong> — the relay is a pass-through
+           for these and forgets them the moment the response is sent. Signing in counts against a
+           small per-network daily sign-in cap (abuse throttling).
            Account counters live in the same usage table as device counters and are pruned after
            at most 7 days.</li>
      </ul>

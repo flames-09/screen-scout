@@ -30,6 +30,8 @@ const ID_TOKEN_CACHE_MS = 50 * 60 * 1000
 
 export interface GoogleAuthManagerDeps {
   clientId(): string
+  /** Baked relay URL; empty disables Google sign-in (the secret lives there). */
+  relayUrl(): string
   getRefreshToken(): string | null
   /** Persists the refresh token; returns whether it will survive a restart. */
   saveRefreshToken(token: string): boolean
@@ -48,7 +50,7 @@ export class GoogleAuthManager {
   constructor(private deps: GoogleAuthManagerDeps) {}
 
   isConfigured(): boolean {
-    return this.deps.clientId().trim() !== ''
+    return this.deps.clientId().trim() !== '' && this.deps.relayUrl().trim() !== ''
   }
 
   /** Interactive sign-in: browser → loopback → relay-ready id token. Single-flight. */
@@ -66,11 +68,16 @@ export class GoogleAuthManager {
     }
   }
 
+  private relayEndpoint(path: string): string {
+    return `${this.deps.relayUrl().trim().replace(/\/$/, '')}${path}`
+  }
+
   private async runSignInFlow(): Promise<{ email?: string; persisted?: boolean }> {
     const result = await runGoogleAuthFlow({
       clientId: this.deps.clientId().trim(),
       openExternal: (url) => this.deps.openExternal(url),
       fetchImpl: this.deps.fetchImpl,
+      exchangeUrl: this.relayEndpoint('/v1/auth/google/exchange'),
       timeoutMs: this.deps.flowTimeoutMs
     })
     if (!result.ok) {
@@ -100,7 +107,12 @@ export class GoogleAuthManager {
     }
     let result: { ok: true; idToken: string } | { ok: false; message: string }
     try {
-      result = await refreshGoogleIdToken(this.deps.clientId().trim(), refreshToken, this.deps.fetchImpl)
+      result = await refreshGoogleIdToken(
+        this.deps.clientId().trim(),
+        refreshToken,
+        this.deps.fetchImpl,
+        this.relayEndpoint('/v1/auth/google/refresh')
+      )
     } catch {
       throw new GoogleAuthError('network', 'Could not refresh the Google session. Check your connection.')
     }

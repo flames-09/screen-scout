@@ -60,6 +60,12 @@ export interface Env {
   DELETES_PER_IP_PER_DAY?: string
   /** Google Sign-In OAuth client id (public). Empty = /auth/google disabled. */
   GOOGLE_CLIENT_ID?: string
+  /**
+   * Google Sign-In OAuth client secret. Required by Google's token endpoint
+   * on the code exchange regardless of client type, so the relay brokers the
+   * secret-bearing calls (see google-oauth.ts). Empty = exchange/refresh 503.
+   */
+  GOOGLE_CLIENT_SECRET?: string
   /** Daily image-question cap per Google account (default 5). */
   ACCOUNT_IMAGE_PER_DAY?: string
   /** Daily text-question cap per Google account (default 50). */

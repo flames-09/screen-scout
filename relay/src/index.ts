@@ -47,6 +47,7 @@ import {
   type QuotaSnapshot
 } from './quota'
 import { guidelinesPage, landingPage, privacyPage, termsPage } from './pages'
+import { googleExchangeCode, googleRefreshIdToken, isValidLoopbackRedirect, parseFormBody } from './google-oauth'
 import { parseChatBody, requestHasImage, routeProviders, tryGroq, tryNvidia, tryWorkersAi, type ChatRequestBody } from './upstream'
 import type { Env, ExecutionContextLike, ScheduledEventLike } from './types'
 
@@ -300,6 +301,125 @@ async function handleGoogleAuth(request: Request, env: Env): Promise<Response> {
     { token, expiresAt, ttlSec: TOKEN_TTL_SECONDS, kind: 'account', accountQuota: snapshot },
     accountQuotaHeaders(snapshot)
   )
+}
+
+/**
+ * Google sign-in config gate shared by the two brokered endpoints: both are
+ * useless until the OAuth client id and the secret are provisioned.
+ */
+function googleBrokerConfigured(env: Env): boolean {
+  return (env.GOOGLE_CLIENT_ID ?? '').trim() !== '' && (env.GOOGLE_CLIENT_SECRET ?? '').trim() !== ''
+}
+
+/**
+ * Brokers the secret-bearing Google code exchange (see google-oauth.ts).
+ *
+ * The app's loopback flow hands us the authorization code + PKCE verifier; we
+ * call Google with the client secret and return the same JSON payload Google
+ * would ({id_token, refresh_token?}). Stateless: tokens transit and are
+ * dropped. The id_token is NOT verified here - that happens in /v1/auth/google
+ * when the app registers with it.
+ */
+async function handleGoogleExchange(request: Request, env: Env): Promise<Response> {
+  if (env.HOSTED_ENABLED === 'false') {
+    return apiError(503, 'hosted-disabled', 'The free hosted service is paused for maintenance.')
+  }
+  if (!googleBrokerConfigured(env)) {
+    return apiError(503, 'google-exchange-not-configured', 'Google sign-in is not enabled on this relay yet.')
+  }
+  let raw: string | null
+  try {
+    raw = await readLimited(request, 8192)
+  } catch {
+    // Client disconnected mid-body: readLimited rejects (distinct from the
+    // null 413 case). Map to bad-request like handleChat does.
+    return apiError(400, 'bad-request', 'The sign-in payload could not be read.')
+  }
+  if (raw === null) {
+    return apiError(413, 'too-large', 'The sign-in payload is too large.')
+  }
+  const form = parseFormBody(raw)
+  const code = (form.get('code') ?? '').trim()
+  const verifier = (form.get('code_verifier') ?? '').trim()
+  const redirectUri = (form.get('redirect_uri') ?? '').trim()
+  if (!code || code.length > 512) {
+    return apiError(400, 'bad-request', 'The sign-in response did not include a valid authorization code.')
+  }
+  if (verifier.length < 43 || verifier.length > 128) {
+    return apiError(400, 'bad-request', 'The PKCE verifier has the wrong shape.')
+  }
+  if (!isValidLoopbackRedirect(redirectUri)) {
+    return apiError(400, 'bad-request', 'The redirect URI is not a loopback callback.')
+  }
+
+  const outcome = await googleExchangeCode(env, code, verifier, redirectUri)
+  if (!outcome.ok) {
+    return outcome.kind === 'upstream'
+      ? apiError(503, 'google-upstream', 'Google sign-in is temporarily unavailable. Try again shortly.')
+      : apiError(401, 'google-code-invalid', 'Google did not accept the sign-in. Start again and try once more.')
+  }
+
+  // Same per-IP pool as registrations: a sign-in creates account state
+  // downstream, so it must not be farmable. Reserved only AFTER Google
+  // accepted the code — garbage attempts and Google outages must not burn
+  // the shared pool that /v1/register depends on.
+  const store = new D1QuotaStore(env.DB)
+  const registrationLimit = Math.max(1, Number(env.REGISTRATIONS_PER_IP_PER_DAY) || 5)
+  if (!(await reserveRegistration(store, clientIp(request), registrationLimit))) {
+    return apiError(429, 'rate-limit', 'Too many sign-ins from this network today.', { retryAfterSec: 3600 })
+  }
+
+  const payload: Record<string, string> = { id_token: outcome.idToken }
+  if (outcome.refreshToken) payload.refresh_token = outcome.refreshToken
+  return json(200, payload)
+}
+
+/**
+ * Silent-refresh broker: refresh token in, fresh id_token out. Stateless
+ * pass-through — nothing is stored and legitimate refreshes cost nothing.
+ * Only FAILED refreshes draw from the per-IP registration pool: the token is
+ * an unguessable Google-issued secret, so abuse buys nothing, but without a
+ * limiter this would be the relay's only free-egress endpoint (it burns the
+ * Workers request budget and spams Google's abuse systems with this
+ * client_id).
+ */
+async function handleGoogleRefresh(request: Request, env: Env): Promise<Response> {
+  if (env.HOSTED_ENABLED === 'false') {
+    return apiError(503, 'hosted-disabled', 'The free hosted service is paused for maintenance.')
+  }
+  if (!googleBrokerConfigured(env)) {
+    return apiError(503, 'google-exchange-not-configured', 'Google sign-in is not enabled on this relay yet.')
+  }
+  let raw: string | null
+  try {
+    raw = await readLimited(request, 8192)
+  } catch {
+    return apiError(400, 'bad-request', 'The refresh payload could not be read.')
+  }
+  if (raw === null) {
+    return apiError(413, 'too-large', 'The refresh payload is too large.')
+  }
+  const form = parseFormBody(raw)
+  const refreshToken = (form.get('refresh_token') ?? '').trim()
+  if (refreshToken.length < 10 || refreshToken.length > 1024) {
+    return apiError(400, 'bad-request', 'The refresh token has the wrong shape.')
+  }
+
+  const outcome = await googleRefreshIdToken(env, refreshToken)
+  if (!outcome.ok) {
+    if (outcome.kind === 'upstream') {
+      return apiError(503, 'google-upstream', 'Google sign-in is temporarily unavailable. Try again shortly.')
+    }
+    const store = new D1QuotaStore(env.DB)
+    const registrationLimit = Math.max(1, Number(env.REGISTRATIONS_PER_IP_PER_DAY) || 5)
+    if (!(await reserveRegistration(store, clientIp(request), registrationLimit))) {
+      return apiError(429, 'rate-limit', 'Too many failed refreshes from this network today.', {
+        retryAfterSec: 3600
+      })
+    }
+    return apiError(401, 'google-session-expired', 'Your Google session ended. Sign in again from Screen Scout.')
+  }
+  return json(200, { id_token: outcome.idToken })
 }
 
 async function authenticate(request: Request, env: Env): Promise<{ deviceId: string; version: string } | Response> {
@@ -693,6 +813,8 @@ export default {
 
     if (path === '/v1/register' && request.method === 'POST') return handleRegister(request, env)
     if (path === '/v1/auth/google' && request.method === 'POST') return handleGoogleAuth(request, env)
+    if (path === '/v1/auth/google/exchange' && request.method === 'POST') return handleGoogleExchange(request, env)
+    if (path === '/v1/auth/google/refresh' && request.method === 'POST') return handleGoogleRefresh(request, env)
     if (path === '/v1/quota' && request.method === 'GET') return handleQuota(request, env)
     if (path === '/v1/chat/completions' && request.method === 'POST') return handleChat(request, env)
     if (path === '/v1/account/delete' && request.method === 'POST') return handleAccountDelete(request, env)
